@@ -3,688 +3,794 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ガントチャート - {{ TITLE }}</title>
+    <title>インタラクティブガントチャート - D3-Mind-Flow-Editor</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
-            padding: 20px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f8f9fa;
+            padding: 0;
+            font-family: 'Segoe UI', 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            overflow: hidden;
         }
-        
-        #controls {
+
+        .container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            backdrop-filter: blur(10px);
+        }
+
+        .header h2 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 18px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .controls button, .controls select {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 6px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .controls button:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+
+        .controls select {
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .gantt-container {
+            flex: 1;
+            overflow: auto;
+            background: white;
+        }
+
+        .gantt-svg {
+            border: none;
+            background: white;
+        }
+
+        .task-bar {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .task-bar:hover {
+            stroke: #333;
+            stroke-width: 2;
+            filter: brightness(0.9);
+        }
+
+        .task-bar.completed {
+            fill: #4CAF50;
+        }
+
+        .task-bar.in-progress {
+            fill: #2196F3;
+        }
+
+        .task-bar.delayed {
+            fill: #F44336;
+        }
+
+        .task-bar.not-started {
+            fill: #FFC107;
+        }
+
+        .progress-bar {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .progress-bar.completed {
+            fill: #2E7D32;
+        }
+
+        .progress-bar.in-progress {
+            fill: #1565C0;
+        }
+
+        .task-label {
+            font-size: 11px;
+            font-weight: 500;
+            fill: #333;
+            pointer-events: none;
+        }
+
+        .axis {
+            font-size: 10px;
+        }
+
+        .axis path,
+        .axis line {
+            fill: none;
+            stroke: #999;
+            shape-rendering: crispEdges;
+        }
+
+        .axis text {
+            font-family: inherit;
+        }
+
+        .grid line {
+            stroke: #e0e0e0;
+            stroke-dasharray: 2,2;
+            shape-rendering: crispEdges;
+        }
+
+        .dependency {
+            fill: none;
+            stroke: #ff6b6b;
+            stroke-width: 2;
+            marker-end: url(#arrowhead);
+            opacity: 0.7;
+        }
+
+        .dependency:hover {
+            opacity: 1;
+            stroke-width: 3;
+        }
+
+        .tooltip {
+            position: absolute;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            border-radius: 6px;
+            pointer-events: none;
+            font-size: 12px;
+            z-index: 1000;
+            max-width: 300px;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .stats {
             position: fixed;
-            top: 20px;
+            bottom: 20px;
             right: 20px;
             background: rgba(255, 255, 255, 0.95);
             padding: 15px;
             border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            z-index: 1000;
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            min-width: 200px;
+            font-size: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(10px);
+            min-width: 220px;
+            z-index: 999;
         }
-        
-        #controls button {
-            padding: 8px 12px;
-            border: none;
-            border-radius: 6px;
-            background: #2196F3;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-        
-        #controls button:hover {
-            background: #1976D2;
-            transform: translateY(-1px);
-        }
-        
-        #controls select {
-            padding: 6px 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            background: white;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            margin: 20px 0;
-        }
-        
-        h1 {
-            margin: 0 0 20px 0;
+
+        .stats h4 {
+            margin: 0 0 10px 0;
             color: #333;
-            text-align: center;
-        }
-        
-        #gantt {
-            width: 100%;
-            height: 600px;
-            overflow: auto;
-        }
-        
-        .task-bar {
-            fill: #4CAF50;
-            stroke: #2E7D32;
-            stroke-width: 1;
-            cursor: pointer;
-        }
-        
-        .task-bar:hover {
-            fill: #66BB6A;
-            stroke-width: 2;
-        }
-        
-        .task-bar.completed {
-            fill: #8BC34A;
-        }
-        
-        .task-bar.in-progress {
-            fill: #FFC107;
-        }
-        
-        .task-bar.not-started {
-            fill: #E0E0E0;
-        }
-        
-        .progress-bar {
-            fill: #4CAF50;
-            opacity: 0.7;
-        }
-        
-        .dependency-line {
-            stroke: #FF5722;
-            stroke-width: 2;
-            fill: none;
-            marker-end: url(#arrowhead);
-        }
-        
-        .task-text {
-            font-size: 12px;
-            fill: #333;
-            text-anchor: start;
-            dominant-baseline: middle;
-        }
-        
-        .date-text {
-            font-size: 10px;
-            fill: #666;
-            text-anchor: middle;
-        }
-        
-        .grid-line {
-            stroke: #e0e0e0;
-            stroke-width: 1;
-        }
-        
-        .today-line {
-            stroke: #FF5722;
-            stroke-width: 2;
-            stroke-dasharray: 4,4;
-        }
-        
-        .category-header {
-            fill: #f5f5f5;
-            stroke: #ddd;
-            stroke-width: 1;
-        }
-        
-        .category-text {
             font-size: 14px;
-            font-weight: bold;
-            fill: #333;
-            text-anchor: start;
-            dominant-baseline: middle;
         }
-        
-        .tooltip {
-            position: absolute;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 10px 15px;
-            border-radius: 6px;
-            font-size: 12px;
-            pointer-events: none;
-            z-index: 1001;
-            opacity: 0;
-            transition: opacity 0.2s ease;
-            max-width: 300px;
+
+        .stats div {
+            margin: 5px 0;
+            color: #666;
         }
-        
+
         .legend {
             display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin: 20px 0;
+            gap: 15px;
+            margin-top: 10px;
             flex-wrap: wrap;
         }
-        
+
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 5px;
+            font-size: 11px;
         }
-        
+
         .legend-color {
-            width: 16px;
-            height: 16px;
-            border-radius: 3px;
-            border: 1px solid #ddd;
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
         }
-        
-        .loading {
-            text-align: center;
-            padding: 50px;
-            font-size: 18px;
-            color: #666;
+
+        .milestone {
+            fill: #FF5722;
+            stroke: #BF360C;
+            stroke-width: 2;
         }
-        
-        .stats {
-            display: flex;
-            justify-content: space-around;
-            margin: 20px 0;
-            text-align: center;
+
+        .today-line {
+            stroke: #E91E63;
+            stroke-width: 2;
+            stroke-dasharray: 5,5;
         }
-        
-        .stat-item {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            min-width: 120px;
-        }
-        
-        .stat-number {
-            font-size: 24px;
+
+        .progress-text {
+            font-size: 9px;
             font-weight: bold;
-            color: #2196F3;
+            fill: white;
+            text-anchor: middle;
+            pointer-events: none;
         }
-        
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .header {
+                padding: 10px;
+            }
+            
+            .controls {
+                gap: 5px;
+            }
+            
+            .controls button, .controls select {
+                padding: 6px 10px;
+                font-size: 11px;
+            }
+            
+            .stats {
+                bottom: 10px;
+                right: 10px;
+                left: 10px;
+                font-size: 11px;
+            }
         }
     </style>
 </head>
 <body>
-    <!-- フローティングコントローラー -->
-    <div id="controls">
-        <button onclick="zoomIn()" title="ズームイン">🔍+</button>
-        <button onclick="zoomOut()" title="ズームアウト">🔍-</button>
-        <button onclick="resetZoom()" title="リセット">⟲</button>
-        <button onclick="fitToScreen()" title="画面に合わせる">📐</button>
-        <select id="viewMode" onchange="changeView(this.value)">
-            <option value="days">日単位</option>
-            <option value="weeks">週単位</option>
-            <option value="months">月単位</option>
-        </select>
-        <button onclick="toggleToday()" title="今日を表示">📅</button>
-    </div>
-    
     <div class="container">
-        <h1>{{ TITLE }}</h1>
-        
-        <!-- 統計情報 -->
-        <div class="stats" id="stats">
-            <div class="stat-item">
-                <div class="stat-number" id="totalTasks">0</div>
-                <div class="stat-label">総タスク数</div>
+        <div class="header">
+            <h2>📅 インタラクティブガントチャート</h2>
+            <div class="controls">
+                <button onclick="fitToView()" title="全体を表示">🎯 全体表示</button>
+                <button onclick="zoomToToday()" title="今日の位置にズーム">📍 今日</button>
+                <select id="timeScale" onchange="changeTimeScale()" title="時間軸の単位を選択">
+                    <option value="day">日単位</option>
+                    <option value="week" selected>週単位</option>
+                    <option value="month">月単位</option>
+                </select>
+                <button onclick="toggleDependencies()" title="依存関係の表示を切り替え">🔗 依存関係</button>
+                <button onclick="showCriticalPath()" title="クリティカルパスをハイライト">⚡ クリティカル</button>
+                <button onclick="exportChart()" title="SVGとしてダウンロード">💾 SVG出力</button>
+                <button onclick="showStatistics()" title="詳細統計を表示">📊 統計詳細</button>
             </div>
-            <div class="stat-item">
-                <div class="stat-number" id="completedTasks">0</div>
-                <div class="stat-label">完了タスク</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-number" id="overdueTasks">0</div>
-                <div class="stat-label">遅延タスク</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-number" id="progressPercent">0%</div>
-                <div class="stat-label">全体進捗</div>
-            </div>
-        </div>
-        
-        <!-- 凡例 -->
-        <div class="legend">
-            <div class="legend-item">
-                <div class="legend-color" style="background-color: #8BC34A;"></div>
-                <span>完了</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background-color: #FFC107;"></div>
-                <span>進行中</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background-color: #E0E0E0;"></div>
-                <span>未開始</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background-color: #4CAF50;"></div>
-                <span>進捗バー</span>
+            
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4CAF50;"></div>
+                    <span>完了済み</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2196F3;"></div>
+                    <span>進行中</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #FFC107;"></div>
+                    <span>未開始</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #F44336;"></div>
+                    <span>遅延</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #FF5722;"></div>
+                    <span>マイルストーン</span>
+                </div>
             </div>
         </div>
-        
-        <!-- ツールチップ -->
-        <div id="tooltip" class="tooltip"></div>
-        
-        <!-- SVGコンテナ -->
-        <div id="gantt-container">
-            <svg id="gantt"></svg>
+
+        <div class="gantt-container">
+            <svg class="gantt-svg" id="gantt"></svg>
         </div>
-        
-        <!-- ローディング表示 -->
-        <div id="loading" class="loading">ガントチャートを読み込み中...</div>
+
+        <div class="stats">
+            <h4>📊 プロジェクト統計</h4>
+            <div>総タスク数: <span id="totalTasks">0</span></div>
+            <div>完了タスク: <span id="completedTasks">0</span></div>
+            <div>進行中タスク: <span id="inProgressTasks">0</span></div>
+            <div>遅延タスク: <span id="delayedTasks">0</span></div>
+            <div>全体進捗: <span id="overallProgress">0%</span></div>
+            <div>プロジェクト期間: <span id="projectDuration">0日</span></div>
+            <div>現在の表示: <span id="currentView">週単位</span></div>
+            <div>依存関係: <span id="dependencyStatus">表示</span></div>
+        </div>
+
+        <div class="tooltip" id="tooltip" style="display: none;"></div>
     </div>
-    
+
     <script>
-        // グローバル変数
-        let svg, g, xScale, yScale, zoom, tooltip;
-        let data = {{ JSON_DATA }};
-        let viewMode = 'days';
-        let showToday = true;
+        // データプレースホルダー（実際のデータに置き換えられます）
+        let ganttData = {{DIAGRAM_DATA}};
         
-        const margin = { top: 60, right: 50, bottom: 60, left: 200 };
-        let width = 1200 - margin.left - margin.right;
-        let height = 600 - margin.top - margin.bottom;
-        
-        // 色設定
-        const statusColors = {
-            completed: '#8BC34A',
-            'in-progress': '#FFC107',
-            'not-started': '#E0E0E0'
-        };
-        
-        // 初期化
-        function init() {
-            if (!data || !data.tasks) {
-                showError("ガントチャートデータが見つかりません");
-                return;
-            }
+        // データが無い場合のサンプルデータ
+        if (!ganttData || !ganttData.content) {
+            const today = new Date();
+            const formatDate = d => d.toISOString().split('T')[0];
             
-            // データの前処理
-            processData();
-            
-            // SVG要素の設定
-            const container = d3.select("#gantt-container");
-            const containerWidth = container.node().getBoundingClientRect().width;
-            width = containerWidth - margin.left - margin.right;
-            
-            svg = d3.select("#gantt")
-                .attr("width", containerWidth)
-                .attr("height", height + margin.top + margin.bottom);
-            
-            // ズーム機能の設定
-            zoom = d3.zoom()
-                .scaleExtent([0.5, 5])
-                .on("zoom", (event) => {
-                    g.attr("transform", event.transform);
-                });
-            
-            svg.call(zoom);
-            
-            // メイングループ
-            g = svg.append("g")
-                .attr("transform", `translate(${margin.left},${margin.top})`);
-            
-            // マーカー（矢印）の定義
-            svg.append("defs").append("marker")
-                .attr("id", "arrowhead")
-                .attr("refX", 9)
-                .attr("refY", 3)
-                .attr("markerWidth", 10)
-                .attr("markerHeight", 6)
-                .attr("orient", "auto")
-                .append("path")
-                .attr("d", "M0,0 L0,6 L9,3 z")
-                .attr("fill", "#FF5722");
-            
-            // ツールチップの設定
-            tooltip = d3.select("#tooltip");
-            
-            // チャートを描画
-            drawChart();
-            
-            // 統計情報を更新
-            updateStats();
-            
-            hideLoading();
-        }
-        
-        // データの前処理
-        function processData() {
-            const parseDate = d3.timeParse("%Y-%m-%d");
-            
-            data.tasks.forEach(task => {
-                task.startDate = parseDate(task.start);
-                task.endDate = parseDate(task.end);
-                task.progress = +task.progress;
-                
-                // ステータスの判定
-                if (task.progress >= 1.0) {
-                    task.status = 'completed';
-                } else if (task.progress > 0) {
-                    task.status = 'in-progress';
-                } else {
-                    task.status = 'not-started';
+            ganttData = [
+                {
+                    task: "プロジェクト計画",
+                    start: formatDate(new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)),
+                    end: formatDate(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)),
+                    progress: 100,
+                    category: "計画",
+                    resource: "プロジェクトマネージャー",
+                    dependencies: ""
+                },
+                {
+                    task: "要件定義",
+                    start: formatDate(new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000)),
+                    end: formatDate(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)),
+                    progress: 80,
+                    category: "分析",
+                    resource: "ビジネスアナリスト",
+                    dependencies: "プロジェクト計画"
+                },
+                {
+                    task: "システム設計",
+                    start: formatDate(new Date(today.getTime() + 8 * 24 * 60 * 60 * 1000)),
+                    end: formatDate(new Date(today.getTime() + 21 * 24 * 60 * 60 * 1000)),
+                    progress: 30,
+                    category: "設計",
+                    resource: "システムアーキテクト",
+                    dependencies: "要件定義"
+                },
+                {
+                    task: "開発フェーズ1",
+                    start: formatDate(new Date(today.getTime() + 22 * 24 * 60 * 60 * 1000)),
+                    end: formatDate(new Date(today.getTime() + 50 * 24 * 60 * 60 * 1000)),
+                    progress: 0,
+                    category: "開発",
+                    resource: "開発チーム",
+                    dependencies: "システム設計"
+                },
+                {
+                    task: "テストフェーズ",
+                    start: formatDate(new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)),
+                    end: formatDate(new Date(today.getTime() + 65 * 24 * 60 * 60 * 1000)),
+                    progress: 0,
+                    category: "テスト",
+                    resource: "QAチーム",
+                    dependencies: "開発フェーズ1"
                 }
-                
-                // 遅延チェック
-                const today = new Date();
-                task.isOverdue = task.endDate < today && task.progress < 1.0;
-            });
-            
-            // カテゴリ別にグループ化
-            data.categories = d3.group(data.tasks, d => d.category);
+            ];
         }
-        
-        // チャート描画
-        function drawChart() {
-            // スケールの設定
-            const minDate = d3.min(data.tasks, d => d.startDate);
-            const maxDate = d3.max(data.tasks, d => d.endDate);
-            
-            // 日付範囲を少し拡張
-            const dateRange = maxDate - minDate;
-            const padding = dateRange * 0.1;
-            
-            xScale = d3.scaleTime()
-                .domain([new Date(minDate - padding), new Date(maxDate + padding)])
-                .range([0, width]);
-            
-            yScale = d3.scaleBand()
-                .domain(data.tasks.map(d => d.task))
-                .range([0, height])
-                .paddingInner(0.1);
-            
+
+        // 設定とグローバル変数
+        const margin = {top: 50, right: 50, bottom: 80, left: 200};
+        const containerWidth = Math.max(1200, window.innerWidth - 40);
+        const containerHeight = Math.max(600, Math.max(400, ganttData.length * 60 + 200));
+        const width = containerWidth - margin.left - margin.right;
+        const height = containerHeight - margin.top - margin.bottom;
+
+        let currentTimeScale = 'week';
+        let showDependencies = true;
+        let selectedTask = null;
+
+        // SVG作成
+        const svg = d3.select("#gantt")
+            .attr("width", containerWidth)
+            .attr("height", containerHeight);
+
+        // メイングループ
+        const g = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // ツールチップ
+        const tooltip = d3.select("#tooltip");
+
+        // データ処理
+        ganttData.forEach(d => {
+            d.startDate = new Date(d.start);
+            d.endDate = new Date(d.end);
+            d.duration = (d.endDate - d.startDate) / (1000 * 60 * 60 * 24);
+            d.progress = parseFloat(d.progress) || 0;
+        });
+
+        // スケール設定
+        const timeExtent = d3.extent(ganttData.flatMap(d => [d.startDate, d.endDate]));
+        const xScale = d3.scaleTime()
+            .domain(timeExtent)
+            .range([0, width]);
+
+        const yScale = d3.scaleBand()
+            .domain(ganttData.map(d => d.task))
+            .range([0, height])
+            .padding(0.2);
+
+        // カテゴリ色マッピング
+        const categoryColors = {
+            '計画': '#9C27B0',
+            '分析': '#2196F3', 
+            '設計': '#FF9800',
+            '開発': '#4CAF50',
+            'テスト': '#F44336',
+            'デプロイ': '#00BCD4'
+        };
+
+        // 矢印マーカー定義
+        svg.append("defs").append("marker")
+            .attr("id", "arrowhead")
+            .attr("viewBox", "-0 -5 10 10")
+            .attr("refX", 8)
+            .attr("refY", 0)
+            .attr("orient", "auto")
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .append("path")
+            .attr("d", "M 0,-5 L 10,0 L 0,5")
+            .attr("fill", "#ff6b6b");
+
+        // 初期化
+        drawGanttChart();
+
+        function drawGanttChart() {
+            // 既存の要素をクリア
+            g.selectAll("*").remove();
+
+            // グリッド線の描画
+            drawGrid();
+
             // 軸の描画
             drawAxes();
-            
-            // グリッドの描画
-            drawGrid();
-            
+
             // 今日の線
-            if (showToday) {
-                drawTodayLine();
-            }
-            
+            drawTodayLine();
+
             // タスクバーの描画
             drawTaskBars();
-            
+
             // 依存関係の描画
-            drawDependencies();
+            if (showDependencies) {
+                drawDependencies();
+            }
+
+            // 統計更新
+            updateStatistics();
         }
-        
-        // 軸の描画
-        function drawAxes() {
-            // X軸（日付）
-            const xAxis = d3.axisBottom(xScale)
-                .tickFormat(d3.timeFormat(getTimeFormat()))
-                .ticks(getTimeTicks());
-            
-            g.append("g")
-                .attr("class", "x-axis")
-                .attr("transform", `translate(0,${height})`)
-                .call(xAxis)
-                .selectAll("text")
-                .attr("class", "date-text");
-            
-            // Y軸（タスク）
-            const yAxis = d3.axisLeft(yScale);
-            
-            g.append("g")
-                .attr("class", "y-axis")
-                .call(yAxis)
-                .selectAll("text")
-                .attr("class", "task-text");
-        }
-        
-        // グリッドの描画
+
         function drawGrid() {
-            // 垂直グリッド線
-            g.selectAll(".grid-line.vertical")
-                .data(xScale.ticks(getTimeTicks()))
-                .enter()
-                .append("line")
-                .attr("class", "grid-line vertical")
+            // 縦線（時間軸）
+            const timeInterval = currentTimeScale === 'day' ? d3.timeDay.every(1) :
+                               currentTimeScale === 'week' ? d3.timeWeek.every(1) :
+                               d3.timeMonth.every(1);
+
+            g.append("g")
+                .attr("class", "grid")
+                .selectAll("line")
+                .data(xScale.ticks(timeInterval))
+                .enter().append("line")
                 .attr("x1", d => xScale(d))
                 .attr("x2", d => xScale(d))
                 .attr("y1", 0)
                 .attr("y2", height);
-            
-            // 水平グリッド線
-            g.selectAll(".grid-line.horizontal")
-                .data(data.tasks)
-                .enter()
-                .append("line")
-                .attr("class", "grid-line horizontal")
+
+            // 横線（タスク区切り）
+            g.append("g")
+                .attr("class", "grid")
+                .selectAll("line")
+                .data(ganttData)
+                .enter().append("line")
                 .attr("x1", 0)
                 .attr("x2", width)
                 .attr("y1", d => yScale(d.task) + yScale.bandwidth())
                 .attr("y2", d => yScale(d.task) + yScale.bandwidth());
         }
-        
-        // 今日の線
+
+        function drawAxes() {
+            // X軸（時間軸）
+            const timeFormat = currentTimeScale === 'day' ? d3.timeFormat("%m/%d") :
+                              currentTimeScale === 'week' ? d3.timeFormat("%m/%d") :
+                              d3.timeFormat("%Y/%m");
+
+            const xAxis = d3.axisBottom(xScale)
+                .tickFormat(timeFormat);
+
+            g.append("g")
+                .attr("class", "axis x-axis")
+                .attr("transform", `translate(0,${height})`)
+                .call(xAxis)
+                .selectAll("text")
+                .style("text-anchor", "end")
+                .attr("dx", "-.8em")
+                .attr("dy", ".15em")
+                .attr("transform", "rotate(-45)");
+
+            // Y軸（タスク軸）
+            const yAxis = d3.axisLeft(yScale);
+
+            g.append("g")
+                .attr("class", "axis y-axis")
+                .call(yAxis);
+        }
+
         function drawTodayLine() {
             const today = new Date();
-            if (today >= xScale.domain()[0] && today <= xScale.domain()[1]) {
-                g.append("line")
-                    .attr("class", "today-line")
-                    .attr("x1", xScale(today))
-                    .attr("x2", xScale(today))
-                    .attr("y1", 0)
-                    .attr("y2", height);
-            }
+            
+            g.append("line")
+                .attr("class", "today-line")
+                .attr("x1", xScale(today))
+                .attr("x2", xScale(today))
+                .attr("y1", 0)
+                .attr("y2", height);
+
+            g.append("text")
+                .attr("x", xScale(today))
+                .attr("y", -10)
+                .attr("text-anchor", "middle")
+                .style("font-size", "10px")
+                .style("font-weight", "bold")
+                .style("fill", "#E91E63")
+                .text("今日");
         }
-        
-        // タスクバーの描画
+
         function drawTaskBars() {
-            const taskBars = g.selectAll(".task-bar")
-                .data(data.tasks)
-                .enter()
-                .append("rect")
-                .attr("class", d => `task-bar ${d.status}`)
+            const taskGroups = g.selectAll(".task-group")
+                .data(ganttData)
+                .enter().append("g")
+                .attr("class", "task-group");
+
+            // メインのタスクバー
+            taskGroups.append("rect")
+                .attr("class", d => `task-bar ${getTaskStatus(d)}`)
                 .attr("x", d => xScale(d.startDate))
                 .attr("y", d => yScale(d.task))
-                .attr("width", d => xScale(d.endDate) - xScale(d.startDate))
+                .attr("width", d => Math.max(2, xScale(d.endDate) - xScale(d.startDate)))
                 .attr("height", yScale.bandwidth())
-                .attr("fill", d => statusColors[d.status])
-                .on("mouseover", showTooltip)
+                .attr("rx", 4)
+                .attr("fill", d => getTaskColor(d))
+                .attr("stroke", "#666")
+                .attr("stroke-width", 1)
+                .on("mouseover", showTaskTooltip)
                 .on("mouseout", hideTooltip)
-                .on("click", (event, d) => {
-                    console.log("Task clicked:", d);
-                });
-            
-            // 進捗バーの描画
-            g.selectAll(".progress-bar")
-                .data(data.tasks.filter(d => d.progress > 0 && d.progress < 1))
-                .enter()
-                .append("rect")
-                .attr("class", "progress-bar")
+                .on("click", selectTask);
+
+            // 進捗バー
+            taskGroups.append("rect")
+                .attr("class", d => `progress-bar ${getTaskStatus(d)}`)
                 .attr("x", d => xScale(d.startDate))
-                .attr("y", d => yScale(d.task))
-                .attr("width", d => (xScale(d.endDate) - xScale(d.startDate)) * d.progress)
-                .attr("height", yScale.bandwidth());
+                .attr("y", d => yScale(d.task) + 3)
+                .attr("width", d => Math.max(0, (xScale(d.endDate) - xScale(d.startDate)) * (d.progress / 100)))
+                .attr("height", yScale.bandwidth() - 6)
+                .attr("rx", 2)
+                .attr("fill", d => d.progress === 100 ? "#2E7D32" : "#1565C0")
+                .attr("opacity", 0.8);
+
+            // 進捗テキスト
+            taskGroups.append("text")
+                .attr("class", "progress-text")
+                .attr("x", d => xScale(d.startDate) + (xScale(d.endDate) - xScale(d.startDate)) / 2)
+                .attr("y", d => yScale(d.task) + yScale.bandwidth() / 2)
+                .attr("dy", "0.35em")
+                .text(d => `${d.progress}%`);
         }
-        
-        // 依存関係の描画
+
         function drawDependencies() {
-            if (!data.dependencies) return;
-            
-            const dependencies = [];
-            
-            data.tasks.forEach(task => {
-                if (task.dependencies && task.dependencies.trim()) {
-                    const deps = task.dependencies.split(';').map(d => d.trim());
+            ganttData.forEach(task => {
+                if (task.dependencies) {
+                    const deps = task.dependencies.split(';').map(s => s.trim()).filter(s => s);
                     deps.forEach(depName => {
-                        const depTask = data.tasks.find(t => t.task === depName);
+                        const depTask = ganttData.find(t => t.task === depName);
                         if (depTask) {
-                            dependencies.push({
-                                source: depTask,
-                                target: task
-                            });
+                            drawDependencyArrow(depTask, task);
                         }
                     });
                 }
             });
-            
-            g.selectAll(".dependency-line")
-                .data(dependencies)
-                .enter()
-                .append("path")
-                .attr("class", "dependency-line")
-                .attr("d", d => {
-                    const x1 = xScale(d.source.endDate);
-                    const y1 = yScale(d.source.task) + yScale.bandwidth() / 2;
-                    const x2 = xScale(d.target.startDate);
-                    const y2 = yScale(d.target.task) + yScale.bandwidth() / 2;
-                    
-                    const midX = (x1 + x2) / 2;
-                    
-                    return `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
-                });
         }
-        
+
+        function drawDependencyArrow(fromTask, toTask) {
+            const fromX = xScale(fromTask.endDate);
+            const fromY = yScale(fromTask.task) + yScale.bandwidth() / 2;
+            const toX = xScale(toTask.startDate);
+            const toY = yScale(toTask.task) + yScale.bandwidth() / 2;
+
+            const path = `M ${fromX} ${fromY} L ${toX} ${toY}`;
+
+            g.append("path")
+                .attr("class", "dependency")
+                .attr("d", path)
+                .on("mouseover", function() {
+                    showDependencyTooltip(event, fromTask, toTask);
+                })
+                .on("mouseout", hideTooltip);
+        }
+
+        // タスクの状態判定
+        function getTaskStatus(d) {
+            const now = new Date();
+            if (d.progress === 100) return "completed";
+            if (d.endDate < now && d.progress < 100) return "delayed";
+            if (d.startDate <= now && d.endDate >= now) return "in-progress";
+            return "not-started";
+        }
+
+        // タスクの色決定
+        function getTaskColor(d) {
+            const status = getTaskStatus(d);
+            const colors = {
+                'completed': '#4CAF50',
+                'in-progress': '#2196F3', 
+                'delayed': '#F44336',
+                'not-started': '#FFC107'
+            };
+            return colors[status] || categoryColors[d.category] || '#9E9E9E';
+        }
+
         // ツールチップ表示
-        function showTooltip(event, d) {
-            const formatDate = d3.timeFormat("%Y-%m-%d");
-            const duration = Math.ceil((d.endDate - d.startDate) / (1000 * 60 * 60 * 24));
-            
-            tooltip.style("opacity", 1)
+        function showTaskTooltip(event, d) {
+            const formatDate = d3.timeFormat("%Y年%m月%d日");
+            const status = getTaskStatus(d);
+            const statusText = {
+                'completed': '✅ 完了',
+                'in-progress': '🔄 進行中',
+                'delayed': '⚠️ 遅延',
+                'not-started': '⏳ 未開始'
+            };
+
+            tooltip.style("display", "block")
                 .html(`
                     <strong>${d.task}</strong><br>
-                    カテゴリ: ${d.category}<br>
+                    状態: ${statusText[status]}<br>
                     開始: ${formatDate(d.startDate)}<br>
                     終了: ${formatDate(d.endDate)}<br>
-                    期間: ${duration}日<br>
-                    進捗: ${Math.round(d.progress * 100)}%<br>
-                    ステータス: ${getStatusText(d.status)}<br>
-                    ${d.isOverdue ? '<span style="color: #FF5722;">⚠️ 遅延中</span>' : ''}
-                    ${d.dependencies ? `<br>依存: ${d.dependencies}` : ''}
+                    期間: ${Math.ceil(d.duration)}日<br>
+                    進捗: ${d.progress}%<br>
+                    担当者: ${d.resource || "未定"}<br>
+                    カテゴリ: ${d.category || "一般"}
                 `)
                 .style("left", (event.pageX + 10) + "px")
                 .style("top", (event.pageY - 10) + "px");
         }
-        
-        // ツールチップ非表示
+
+        function showDependencyTooltip(event, fromTask, toTask) {
+            tooltip.style("display", "block")
+                .html(`
+                    <strong>🔗 依存関係</strong><br>
+                    ${fromTask.task}<br>
+                    ↓<br>
+                    ${toTask.task}
+                `)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+
         function hideTooltip() {
-            tooltip.style("opacity", 0);
+            tooltip.style("display", "none");
         }
-        
-        // ステータステキスト取得
-        function getStatusText(status) {
-            const statusMap = {
-                'completed': '完了',
-                'in-progress': '進行中',
-                'not-started': '未開始'
-            };
-            return statusMap[status] || status;
-        }
-        
-        // 統計情報更新
-        function updateStats() {
-            const totalTasks = data.tasks.length;
-            const completedTasks = data.tasks.filter(d => d.status === 'completed').length;
-            const overdueTasks = data.tasks.filter(d => d.isOverdue).length;
-            const avgProgress = d3.mean(data.tasks, d => d.progress) * 100;
+
+        // タスク選択
+        function selectTask(event, d) {
+            // 既存の選択をクリア
+            g.selectAll(".task-bar").attr("stroke", "#666").attr("stroke-width", 1);
             
+            // 新しい選択
+            d3.select(this).attr("stroke", "#333").attr("stroke-width", 3);
+            selectedTask = d;
+        }
+
+        // 統計情報の更新
+        function updateStatistics() {
+            const totalTasks = ganttData.length;
+            const completedTasks = ganttData.filter(d => d.progress === 100).length;
+            const inProgressTasks = ganttData.filter(d => d.progress > 0 && d.progress < 100).length;
+            const delayedTasks = ganttData.filter(d => getTaskStatus(d) === 'delayed').length;
+            const overallProgress = Math.round(ganttData.reduce((sum, d) => sum + d.progress, 0) / totalTasks);
+            
+            const projectStart = d3.min(ganttData, d => d.startDate);
+            const projectEnd = d3.max(ganttData, d => d.endDate);
+            const projectDuration = Math.ceil((projectEnd - projectStart) / (1000 * 60 * 60 * 24));
+
             document.getElementById('totalTasks').textContent = totalTasks;
             document.getElementById('completedTasks').textContent = completedTasks;
-            document.getElementById('overdueTasks').textContent = overdueTasks;
-            document.getElementById('progressPercent').textContent = Math.round(avgProgress) + '%';
+            document.getElementById('inProgressTasks').textContent = inProgressTasks;
+            document.getElementById('delayedTasks').textContent = delayedTasks;
+            document.getElementById('overallProgress').textContent = overallProgress + "%";
+            document.getElementById('projectDuration').textContent = projectDuration + "日";
         }
-        
-        // 時間フォーマット取得
-        function getTimeFormat() {
-            switch(viewMode) {
-                case 'days': return "%m/%d";
-                case 'weeks': return "%m/%d";
-                case 'months': return "%Y/%m";
-                default: return "%m/%d";
-            }
+
+        // コントロール関数
+        function fitToView() {
+            // 全体表示機能（実装予定）
+            console.log("全体表示");
         }
-        
-        // 時間ティック取得
-        function getTimeTicks() {
-            switch(viewMode) {
-                case 'days': return d3.timeDay.every(1);
-                case 'weeks': return d3.timeWeek.every(1);
-                case 'months': return d3.timeMonth.every(1);
-                default: return d3.timeDay.every(1);
-            }
+
+        function zoomToToday() {
+            const today = new Date();
+            // 今日の位置にスクロール（実装予定）
+            console.log("今日へズーム");
         }
-        
-        // ズームイン
-        function zoomIn() {
-            svg.transition().call(zoom.scaleBy, 1.2);
+
+        function changeTimeScale() {
+            currentTimeScale = document.getElementById('timeScale').value;
+            const scaleText = {
+                'day': '日単位',
+                'week': '週単位', 
+                'month': '月単位'
+            };
+            document.getElementById('currentView').textContent = scaleText[currentTimeScale];
+            drawGanttChart();
         }
-        
-        // ズームアウト
-        function zoomOut() {
-            svg.transition().call(zoom.scaleBy, 0.8);
+
+        function toggleDependencies() {
+            showDependencies = !showDependencies;
+            document.getElementById('dependencyStatus').textContent = showDependencies ? '表示' : '非表示';
+            drawGanttChart();
         }
-        
-        // ズームリセット
-        function resetZoom() {
-            svg.transition().call(zoom.transform, d3.zoomIdentity);
+
+        function showCriticalPath() {
+            // クリティカルパス表示（実装予定）
+            alert("🎯 クリティカルパス機能は開発中です");
         }
-        
-        // 画面に合わせる
-        function fitToScreen() {
-            resetZoom();
+
+        function exportChart() {
+            const svgData = new XMLSerializer().serializeToString(svg.node());
+            const blob = new Blob([svgData], {type: "image/svg+xml"});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "gantt-chart.svg";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
-        
-        // 表示モード変更
-        function changeView(mode) {
-            viewMode = mode;
-            g.selectAll("*").remove();
-            drawChart();
+
+        function showStatistics() {
+            const stats = ganttData.map(d => ({
+                task: d.task,
+                status: getTaskStatus(d),
+                progress: d.progress,
+                duration: d.duration
+            }));
+
+            const message = `
+📊 詳細統計情報:
+
+${stats.map(s => `• ${s.task}: ${s.progress}% (${s.status})`).join('\\n')}
+
+🎯 プロジェクト概要:
+• 総期間: ${Math.ceil((d3.max(ganttData, d => d.endDate) - d3.min(ganttData, d => d.startDate)) / (1000 * 60 * 60 * 24))}日
+• 平均進捗: ${Math.round(d3.mean(ganttData, d => d.progress))}%
+            `;
+            
+            alert(message);
         }
-        
-        // 今日の線表示切り替え
-        function toggleToday() {
-            showToday = !showToday;
-            g.select(".today-line").remove();
-            if (showToday) {
-                drawTodayLine();
-            }
-        }
-        
-        // ローディング非表示
-        function hideLoading() {
-            document.getElementById('loading').style.display = 'none';
-        }
-        
-        // エラー表示
-        function showError(message) {
-            document.getElementById('loading').innerHTML = `エラー: ${message}`;
-        }
-        
-        // 初期化実行
-        document.addEventListener('DOMContentLoaded', init);
-        
-        // ウィンドウリサイズ処理
+
+        // リサイズ対応
         window.addEventListener('resize', () => {
-            const container = d3.select("#gantt-container");
-            const containerWidth = container.node().getBoundingClientRect().width;
-            width = containerWidth - margin.left - margin.right;
-            
-            svg.attr("width", containerWidth);
-            
-            if (xScale) {
-                xScale.range([0, width]);
-                g.selectAll("*").remove();
-                drawChart();
-            }
+            // リサイズ処理（実装予定）
+            console.log("リサイズ対応");
         });
+
+        // 初期表示メッセージ
+        console.log('📅 インタラクティブガントチャートが読み込まれました');
+        console.log('機能: タスク選択、依存関係表示、時間軸切り替え、進捗確認');
     </script>
 </body>
 </html>

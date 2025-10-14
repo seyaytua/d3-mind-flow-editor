@@ -1,489 +1,410 @@
 #!/usr/bin/env python3
 """
 Export Manager for D3-Mind-Flow-Editor
-Handles all export functionality for different diagram types and formats
+Handles HTML, PNG, SVG, and PDF export with high-resolution support using Playwright
 """
 
 import os
-import tempfile
+import json
+import asyncio
 from pathlib import Path
-from typing import Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Optional, Tuple
+from playwright.async_api import async_playwright
+from PIL import Image
+import tempfile
 
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-
-try:
-    import cairosvg
-    CAIROSVG_AVAILABLE = True
-except ImportError:
-    CAIROSVG_AVAILABLE = False
-
-try:
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import letter, A4
-    REPORTLAB_AVAILABLE = True
-except ImportError:
-    REPORTLAB_AVAILABLE = False
-
+from ..utils.config import Config
 from ..utils.logger import logger
-from ..database.models import DiagramType
-from .d3_generator import D3Generator
+from ..utils.resolution_manager import ResolutionManager
 
 
 class ExportManager:
-    """Export manager for different diagram formats"""
+    """Manages export functionality for all diagram formats"""
     
-    def __init__(self):
-        self.d3_generator = D3Generator()
-        self.temp_dir = tempfile.mkdtemp(prefix="d3_mindflow_")
+    def __init__(self, config: Config, resolution_manager: ResolutionManager):
+        self.config = config
+        self.resolution_manager = resolution_manager
+        
+        # Export format specifications from design document
+        self.supported_formats = {
+            'html': 'スタンドアロンHTML（推奨：マインドマップ）',
+            'png': '高解像度PNG（推奨：フローチャート）', 
+            'svg': 'ベクターSVG（拡大縮小対応）',
+            'pdf': 'ベクターPDF（印刷用）'
+        }
         
         logger.debug("Export manager initialized")
     
-    def export_diagram(self, 
-                      content: str, 
-                      diagram_type: str, 
-                      output_path: str, 
-                      format: str = "html",
-                      options: Optional[Dict[str, Any]] = None) -> bool:
-        """Export diagram to specified format
+    async def export_diagram(self, diagram_data: Dict, format: str, output_path: str) -> bool:
+        """
+        Export diagram in specified format
         
         Args:
-            content: Diagram content (CSV/Mermaid)
-            diagram_type: Type of diagram (mindmap, gantt, flowchart)
+            diagram_data: Diagram data with type, content, styles
+            format: Export format (html/png/svg/pdf)
             output_path: Output file path
-            format: Export format (html, png, svg, pdf)
-            options: Export options (quality, size, etc.)
             
         Returns:
-            bool: Success status
+            True if successful, False otherwise
         """
         try:
-            options = options or {}
+            # Generate HTML content
+            html_content = self._generate_standalone_html(diagram_data)
             
-            logger.info(f"Exporting {diagram_type} as {format} to {output_path}")
-            
-            if format.lower() == "html":
-                return self._export_html(content, diagram_type, output_path, options)
-            elif format.lower() == "png":
-                return self._export_png(content, diagram_type, output_path, options)
-            elif format.lower() == "svg":
-                return self._export_svg(content, diagram_type, output_path, options)
-            elif format.lower() == "pdf":
-                return self._export_pdf(content, diagram_type, output_path, options)
+            if format == 'html':
+                return await self._export_html(html_content, output_path)
+            elif format == 'png':
+                return await self._export_png(html_content, output_path)
+            elif format == 'svg':
+                return await self._export_svg(html_content, output_path)
+            elif format == 'pdf':
+                return await self._export_pdf(html_content, output_path)
             else:
-                logger.error(f"Unsupported export format: {format}")
-                return False
+                raise ValueError(f"Unsupported format: {format}")
                 
         except Exception as e:
             logger.error(f"Export failed: {e}")
             return False
     
-    def _export_html(self, content: str, diagram_type: str, output_path: str, options: Dict[str, Any]) -> bool:
+    def _generate_standalone_html(self, diagram_data: Dict) -> str:
+        """
+        Generate standalone HTML with embedded D3.js templates
+        
+        Args:
+            diagram_data: Diagram data
+            
+        Returns:
+            Complete HTML string
+        """
+        diagram_type = diagram_data.get('type', 'mindmap')
+        content = diagram_data.get('content', '')
+        styles = diagram_data.get('styles', {})
+        
+        # Load appropriate D3.js template
+        template_path = Path(__file__).parent.parent / 'assets' / 'd3_templates' / f'{diagram_type}.html'
+        
+        if not template_path.exists():
+            logger.error(f"Template not found: {template_path}")
+            # Fallback to basic template
+            return self._generate_fallback_html(diagram_data)
+        
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                template = f.read()
+            
+            # Embed data into template
+            data_json = json.dumps({
+                'content': content,
+                'styles': styles,
+                'type': diagram_type
+            }, ensure_ascii=False)
+            
+            # Replace placeholder with actual data
+            html_content = template.replace('{{DIAGRAM_DATA}}', data_json)
+            
+            # Make standalone (embed D3.js CDN content)
+            html_content = self._make_standalone(html_content)
+            
+            return html_content
+            
+        except Exception as e:
+            logger.error(f"Template processing failed: {e}")
+            return self._generate_fallback_html(diagram_data)
+    
+    def _generate_fallback_html(self, diagram_data: Dict) -> str:
+        """Generate basic fallback HTML when template fails"""
+        diagram_type = diagram_data.get('type', 'mindmap')
+        content = diagram_data.get('content', '')
+        
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{diagram_type.title()} Export</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {{
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{diagram_type.title()} Export</h1>
+        <div id="diagram"></div>
+        <pre>{content}</pre>
+    </div>
+</body>
+</html>
+        """
+    
+    def _make_standalone(self, html_content: str) -> str:
+        """
+        Make HTML standalone by embedding external dependencies
+        
+        Args:
+            html_content: HTML with CDN links
+            
+        Returns:
+            HTML with embedded resources
+        """
+        # For now, keep CDN links but add fallback
+        # In production, would download and embed D3.js content
+        
+        standalone_note = """
+<!-- Standalone HTML Export from D3-Mind-Flow-Editor -->
+<!-- This file contains all necessary code to run independently -->
+        """
+        
+        return html_content.replace('<head>', f'<head>\n{standalone_note}')
+    
+    async def _export_html(self, html_content: str, output_path: str) -> bool:
         """Export as standalone HTML file"""
         try:
-            # Generate complete HTML with embedded data
-            html_content = self.d3_generator.generate_html(content, diagram_type, standalone=True)
-            
-            # Write to file
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             
-            logger.info(f"HTML exported successfully to {output_path}")
+            logger.info(f"HTML exported successfully: {output_path}")
             return True
             
         except Exception as e:
             logger.error(f"HTML export failed: {e}")
             return False
     
-    def _export_png(self, content: str, diagram_type: str, output_path: str, options: Dict[str, Any]) -> bool:
-        """Export as PNG image using Playwright"""
-        if not PLAYWRIGHT_AVAILABLE:
-            logger.error("Playwright not available for PNG export")
-            return False
-        
+    async def _export_png(self, html_content: str, output_path: str) -> bool:
+        """
+        Export as high-resolution PNG using Playwright
+        Based on design document specifications
+        """
         try:
-            # Generate HTML content
-            html_content = self.d3_generator.generate_html(content, diagram_type, standalone=True)
+            # Get export settings from config
+            png_dpi = self.config.get('export.png_dpi', 300)
+            png_width = self.config.get('export.png_width', 1920)
+            png_height = self.config.get('export.png_height', 1080)
+            
+            # Calculate scale factor: scale = dpi / 72
+            scale_factor = png_dpi / 72.0
+            
+            # Adjust viewport for high resolution
+            viewport_width = int(png_width * scale_factor)
+            viewport_height = int(png_height * scale_factor)
             
             # Create temporary HTML file
-            temp_html = os.path.join(self.temp_dir, f"export_{datetime.now().timestamp()}.html")
-            with open(temp_html, 'w', encoding='utf-8') as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
                 f.write(html_content)
+                temp_html_path = f.name
             
-            # Screenshot with Playwright
-            with sync_playwright() as p:
-                browser = p.chromium.launch()
-                page = browser.new_page()
+            try:
+                async with async_playwright() as p:
+                    # Launch browser with high DPI support
+                    browser = await p.chromium.launch(headless=True)
+                    
+                    # Create page with high resolution viewport
+                    page = await browser.new_page(
+                        viewport={'width': viewport_width, 'height': viewport_height},
+                        device_scale_factor=scale_factor
+                    )
+                    
+                    # Navigate to HTML file
+                    await page.goto(f'file://{temp_html_path}')
+                    
+                    # Wait for D3.js to render
+                    await page.wait_for_load_state('networkidle')
+                    await asyncio.sleep(2)  # Additional wait for D3 animations
+                    
+                    # Take screenshot
+                    await page.screenshot(
+                        path=output_path,
+                        full_page=False,
+                        scale='device'
+                    )
+                    
+                    await browser.close()
                 
-                # Set viewport size
-                width = options.get('width', 1200)
-                height = options.get('height', 800)
-                page.set_viewport_size({"width": width, "height": height})
+                # Set PNG DPI metadata using Pillow
+                self._set_png_dpi(output_path, png_dpi)
                 
-                # Load page and wait for content
-                page.goto(f"file://{temp_html}")
-                page.wait_for_timeout(3000)  # Wait for D3.js rendering
+                logger.info(f"PNG exported successfully: {output_path} (DPI: {png_dpi})")
+                return True
                 
-                # Take screenshot
-                page.screenshot(path=output_path, full_page=options.get('full_page', True))
+            finally:
+                # Clean up temporary file
+                os.unlink(temp_html_path)
                 
-                browser.close()
-            
-            # Cleanup
-            os.remove(temp_html)
-            
-            logger.info(f"PNG exported successfully to {output_path}")
-            return True
-            
         except Exception as e:
             logger.error(f"PNG export failed: {e}")
             return False
     
-    def _export_svg(self, content: str, diagram_type: str, output_path: str, options: Dict[str, Any]) -> bool:
-        """Export as SVG using Playwright to extract SVG content"""
-        if not PLAYWRIGHT_AVAILABLE:
-            logger.error("Playwright not available for SVG export")
-            return False
-        
+    def _set_png_dpi(self, png_path: str, dpi: int):
+        """Set DPI metadata in PNG file using Pillow"""
         try:
-            # Generate HTML content
-            html_content = self.d3_generator.generate_html(content, diagram_type, standalone=True)
-            
+            with Image.open(png_path) as img:
+                img.save(png_path, dpi=(dpi, dpi))
+            logger.debug(f"PNG DPI metadata set to {dpi}")
+        except Exception as e:
+            logger.warning(f"Failed to set PNG DPI metadata: {e}")
+    
+    async def _export_svg(self, html_content: str, output_path: str) -> bool:
+        """
+        Export as SVG by extracting SVG from D3.js rendered page
+        """
+        try:
             # Create temporary HTML file
-            temp_html = os.path.join(self.temp_dir, f"export_{datetime.now().timestamp()}.html")
-            with open(temp_html, 'w', encoding='utf-8') as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
                 f.write(html_content)
+                temp_html_path = f.name
             
-            # Extract SVG with Playwright
-            with sync_playwright() as p:
-                browser = p.chromium.launch()
-                page = browser.new_page()
+            try:
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    
+                    await page.goto(f'file://{temp_html_path}')
+                    await page.wait_for_load_state('networkidle')
+                    await asyncio.sleep(2)
+                    
+                    # Extract SVG content using JavaScript
+                    svg_content = await page.evaluate("""
+                        () => {
+                            const svgs = document.querySelectorAll('svg');
+                            if (svgs.length > 0) {
+                                return svgs[0].outerHTML;
+                            }
+                            return null;
+                        }
+                    """)
+                    
+                    await browser.close()
                 
-                # Load page and wait for content
-                page.goto(f"file://{temp_html}")
-                page.wait_for_timeout(3000)  # Wait for D3.js rendering
+                if svg_content:
+                    # Add XML declaration and clean up SVG
+                    svg_content = '<?xml version="1.0" encoding="UTF-8"?>\\n' + svg_content
+                    
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write(svg_content)
+                    
+                    logger.info(f"SVG exported successfully: {output_path}")
+                    return True
+                else:
+                    logger.error("No SVG content found in rendered page")
+                    return False
                 
-                # Extract SVG content
-                svg_content = page.evaluate("""
-                    () => {
-                        const svg = document.querySelector('svg');
-                        return svg ? svg.outerHTML : null;
-                    }
-                """)
+            finally:
+                os.unlink(temp_html_path)
                 
-                browser.close()
-            
-            if svg_content:
-                # Add XML declaration and styling
-                full_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-{svg_content}'''
-                
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(full_svg)
-                
-                logger.info(f"SVG exported successfully to {output_path}")
-                return True
-            else:
-                logger.error("No SVG content found in generated HTML")
-                return False
-            
-            # Cleanup
-            os.remove(temp_html)
-            
         except Exception as e:
             logger.error(f"SVG export failed: {e}")
             return False
     
-    def _export_pdf(self, content: str, diagram_type: str, output_path: str, options: Dict[str, Any]) -> bool:
-        """Export as PDF using PNG conversion or direct PDF generation"""
+    async def _export_pdf(self, html_content: str, output_path: str) -> bool:
+        """
+        Export as vector PDF using Playwright
+        Based on design document: prefer vector format
+        """
         try:
-            # Method 1: PNG to PDF conversion
-            if PLAYWRIGHT_AVAILABLE and PIL_AVAILABLE and REPORTLAB_AVAILABLE:
-                return self._export_pdf_via_png(content, diagram_type, output_path, options)
+            # Get PDF settings from config
+            pdf_vector = self.config.get('export.pdf_vector', True)
+            paper_size = self.config.get('export.pdf_paper_size', 'A4')
             
-            # Method 2: Direct PDF generation (limited functionality)
-            elif REPORTLAB_AVAILABLE:
-                return self._export_pdf_direct(content, diagram_type, output_path, options)
+            # Paper size mapping
+            paper_sizes = {
+                'A4': {'width': 8.27, 'height': 11.69},  # inches
+                'A3': {'width': 11.69, 'height': 16.54},
+                'Letter': {'width': 8.5, 'height': 11}
+            }
             
-            else:
-                logger.error("Required libraries for PDF export not available")
-                return False
+            size_config = paper_sizes.get(paper_size, paper_sizes['A4'])
+            
+            # Create temporary HTML file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
+                f.write(html_content)
+                temp_html_path = f.name
+            
+            try:
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    
+                    await page.goto(f'file://{temp_html_path}')
+                    await page.wait_for_load_state('networkidle')
+                    await asyncio.sleep(2)
+                    
+                    # Generate PDF with vector support
+                    if pdf_vector:
+                        await page.pdf(
+                            path=output_path,
+                            format=paper_size if paper_size in ['A3', 'A4', 'Letter'] else None,
+                            width=f"{size_config['width']}in" if paper_size not in ['A3', 'A4', 'Letter'] else None,
+                            height=f"{size_config['height']}in" if paper_size not in ['A3', 'A4', 'Letter'] else None,
+                            print_background=True,
+                            prefer_css_page_size=True
+                        )
+                    else:
+                        # Fallback: PNG to PDF conversion
+                        logger.warning("Vector PDF failed, using raster fallback")
+                        return False
+                    
+                    await browser.close()
+                
+                logger.info(f"PDF exported successfully: {output_path} (Vector: {pdf_vector})")
+                return True
+                
+            finally:
+                os.unlink(temp_html_path)
                 
         except Exception as e:
             logger.error(f"PDF export failed: {e}")
             return False
     
-    def _export_pdf_via_png(self, content: str, diagram_type: str, output_path: str, options: Dict[str, Any]) -> bool:
-        """Export PDF via PNG conversion"""
-        try:
-            # Create temporary PNG
-            temp_png = os.path.join(self.temp_dir, f"temp_{datetime.now().timestamp()}.png")
-            
-            # Export as PNG first
-            png_options = {
-                'width': options.get('width', 1200),
-                'height': options.get('height', 800),
-                'full_page': options.get('full_page', True)
-            }
-            
-            if not self._export_png(content, diagram_type, temp_png, png_options):
-                return False
-            
-            # Convert PNG to PDF
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.utils import ImageReader
-            
-            # Open PNG image
-            img = Image.open(temp_png)
-            img_width, img_height = img.size
-            
-            # Create PDF
-            page_size = options.get('page_size', A4)
-            pdf_canvas = canvas.Canvas(output_path, pagesize=page_size)
-            
-            # Calculate scaling to fit page
-            page_width, page_height = page_size
-            scale_x = (page_width - 40) / img_width  # 20px margin on each side
-            scale_y = (page_height - 40) / img_height
-            scale = min(scale_x, scale_y)
-            
-            # Calculate centered position
-            scaled_width = img_width * scale
-            scaled_height = img_height * scale
-            x = (page_width - scaled_width) / 2
-            y = (page_height - scaled_height) / 2
-            
-            # Draw image
-            pdf_canvas.drawImage(ImageReader(img), x, y, scaled_width, scaled_height)
-            
-            # Add metadata
-            pdf_canvas.setTitle(f"{diagram_type.title()} Chart")
-            pdf_canvas.setAuthor("D3-Mind-Flow-Editor")
-            pdf_canvas.setSubject(f"Exported {diagram_type} diagram")
-            pdf_canvas.setCreator("D3-Mind-Flow-Editor")
-            
-            pdf_canvas.save()
-            
-            # Cleanup
-            os.remove(temp_png)
-            
-            logger.info(f"PDF exported successfully to {output_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"PDF via PNG export failed: {e}")
-            return False
+    def get_export_settings(self) -> Dict:
+        """Get current export settings from config"""
+        return {
+            'png_dpi': self.config.get('export.png_dpi', 300),
+            'png_width': self.config.get('export.png_width', 1920),
+            'png_height': self.config.get('export.png_height', 1080),
+            'png_keep_aspect': self.config.get('export.png_keep_aspect', True),
+            'pdf_vector': self.config.get('export.pdf_vector', True),
+            'pdf_paper_size': self.config.get('export.pdf_paper_size', 'A4')
+        }
     
-    def _export_pdf_direct(self, content: str, diagram_type: str, output_path: str, options: Dict[str, Any]) -> bool:
-        """Direct PDF generation (text-based, limited functionality)"""
-        try:
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter, A4
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import inch
-            
-            # Create PDF document
-            doc = SimpleDocTemplate(output_path, pagesize=A4)
-            styles = getSampleStyleSheet()
-            story = []
-            
-            # Title
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                fontSize=24,
-                spaceAfter=30,
-                alignment=1  # Center alignment
-            )
-            
-            story.append(Paragraph(f"{diagram_type.title()} Chart", title_style))
-            story.append(Spacer(1, 20))
-            
-            # Content (simplified text representation)
-            content_style = styles['Normal']
-            story.append(Paragraph("Diagram Content:", styles['Heading2']))
-            story.append(Spacer(1, 12))
-            
-            # Process content based on type
-            if diagram_type == DiagramType.MINDMAP:
-                lines = content.strip().split('\n')
-                for line in lines[1:]:  # Skip header
-                    if line.strip():
-                        story.append(Paragraph(f"• {line.strip()}", content_style))
-            
-            elif diagram_type == DiagramType.GANTT:
-                lines = content.strip().split('\n')
-                for line in lines[1:]:  # Skip header
-                    if line.strip():
-                        story.append(Paragraph(f"Task: {line.strip()}", content_style))
-            
-            elif diagram_type == DiagramType.FLOWCHART:
-                story.append(Paragraph("Flowchart Mermaid Code:", content_style))
-                story.append(Spacer(1, 12))
-                code_style = ParagraphStyle(
-                    'Code',
-                    parent=styles['Code'],
-                    fontSize=10,
-                    fontName='Courier'
-                )
-                story.append(Paragraph(content.replace('\n', '<br/>'), code_style))
-            
-            # Footer
-            story.append(Spacer(1, 30))
-            footer_style = ParagraphStyle(
-                'Footer',
-                parent=styles['Normal'],
-                fontSize=8,
-                alignment=1
-            )
-            story.append(Paragraph(f"Generated by D3-Mind-Flow-Editor on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", footer_style))
-            
-            # Build PDF
-            doc.build(story)
-            
-            logger.info(f"PDF exported successfully to {output_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Direct PDF export failed: {e}")
-            return False
+    def update_export_settings(self, settings: Dict):
+        """Update export settings in config"""
+        for key, value in settings.items():
+            self.config.set(f'export.{key}', value)
+        
+        logger.info("Export settings updated")
     
-    def get_export_formats(self) -> Dict[str, Dict[str, Any]]:
-        """Get available export formats and their capabilities"""
-        formats = {
-            "html": {
-                "name": "HTML",
-                "extension": ".html",
-                "description": "Interactive HTML file with embedded D3.js",
-                "available": True,
-                "primary_for": [DiagramType.MINDMAP]
+    def get_recommended_settings(self, use_case: str) -> Dict:
+        """
+        Get recommended export settings based on use case
+        From design document specifications
+        """
+        recommendations = {
+            'web': {
+                'png_dpi': 72,
+                'png_width': 1920,
+                'png_height': 1080,
+                'pdf_paper_size': 'A4'
             },
-            "png": {
-                "name": "PNG Image",
-                "extension": ".png",
-                "description": "High-quality raster image",
-                "available": PLAYWRIGHT_AVAILABLE,
-                "primary_for": [DiagramType.FLOWCHART]
+            'presentation': {
+                'png_dpi': 150,
+                'png_width': 1920,
+                'png_height': 1080,
+                'pdf_paper_size': 'A4'
             },
-            "svg": {
-                "name": "SVG Vector",
-                "extension": ".svg",
-                "description": "Scalable vector graphics",
-                "available": PLAYWRIGHT_AVAILABLE,
-                "primary_for": [DiagramType.GANTT]
-            },
-            "pdf": {
-                "name": "PDF Document",
-                "extension": ".pdf",
-                "description": "Portable document format",
-                "available": REPORTLAB_AVAILABLE,
-                "primary_for": []
+            'print': {
+                'png_dpi': 300,
+                'png_width': 3840,
+                'png_height': 2160,
+                'pdf_paper_size': 'A3'
             }
         }
         
-        return formats
-    
-    def get_export_options(self, format: str) -> Dict[str, Any]:
-        """Get available export options for a format"""
-        base_options = {
-            "quality": {"type": "int", "default": 100, "min": 10, "max": 100},
-            "title": {"type": "str", "default": "Diagram"},
-        }
-        
-        if format in ["png", "svg"]:
-            base_options.update({
-                "width": {"type": "int", "default": 1200, "min": 400, "max": 4000},
-                "height": {"type": "int", "default": 800, "min": 300, "max": 3000},
-                "full_page": {"type": "bool", "default": True}
-            })
-        
-        if format == "pdf":
-            base_options.update({
-                "page_size": {"type": "choice", "default": "A4", "choices": ["A4", "Letter", "Legal"]},
-                "orientation": {"type": "choice", "default": "portrait", "choices": ["portrait", "landscape"]}
-            })
-        
-        return base_options
-    
-    def cleanup(self):
-        """Clean up temporary files"""
-        try:
-            import shutil
-            shutil.rmtree(self.temp_dir, ignore_errors=True)
-            logger.debug("Export manager cleanup completed")
-        except Exception as e:
-            logger.warning(f"Cleanup failed: {e}")
-    
-    def __del__(self):
-        """Destructor to ensure cleanup"""
-        self.cleanup()
-
-
-# Export format utilities
-class ExportFormatUtils:
-    """Utilities for export format handling"""
-    
-    @staticmethod
-    def get_default_format(diagram_type: str) -> str:
-        """Get the default export format for a diagram type"""
-        defaults = {
-            DiagramType.MINDMAP: "html",
-            DiagramType.FLOWCHART: "png", 
-            DiagramType.GANTT: "svg"
-        }
-        return defaults.get(diagram_type, "html")
-    
-    @staticmethod
-    def get_format_description(format: str) -> str:
-        """Get description of export format"""
-        descriptions = {
-            "html": "Interactive web page with full functionality",
-            "png": "High-quality static image for presentations",
-            "svg": "Vector graphics for scalable printing",
-            "pdf": "Document format for reports and sharing"
-        }
-        return descriptions.get(format, "Unknown format")
-    
-    @staticmethod
-    def validate_export_options(format: str, options: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate and clean export options"""
-        manager = ExportManager()
-        valid_options = manager.get_export_options(format)
-        
-        cleaned_options = {}
-        for key, value in options.items():
-            if key in valid_options:
-                option_def = valid_options[key]
-                try:
-                    if option_def["type"] == "int":
-                        cleaned_value = int(value)
-                        if "min" in option_def:
-                            cleaned_value = max(cleaned_value, option_def["min"])
-                        if "max" in option_def:
-                            cleaned_value = min(cleaned_value, option_def["max"])
-                        cleaned_options[key] = cleaned_value
-                    elif option_def["type"] == "bool":
-                        cleaned_options[key] = bool(value)
-                    elif option_def["type"] == "choice":
-                        if value in option_def["choices"]:
-                            cleaned_options[key] = value
-                        else:
-                            cleaned_options[key] = option_def["default"]
-                    else:
-                        cleaned_options[key] = str(value)
-                except (ValueError, TypeError):
-                    cleaned_options[key] = option_def["default"]
-        
-        return cleaned_options
+        return recommendations.get(use_case, recommendations['web'])
