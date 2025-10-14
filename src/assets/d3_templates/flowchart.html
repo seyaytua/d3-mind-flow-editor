@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フローチャート - {{ TITLE }}</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+        }
+        
+        #controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            min-width: 200px;
+        }
+        
+        #controls button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            background: #FF9800;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        
+        #controls button:hover {
+            background: #F57C00;
+            transform: translateY(-1px);
+        }
+        
+        #controls select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin: 20px 0;
+            min-height: 600px;
+        }
+        
+        h1 {
+            margin: 0 0 20px 0;
+            color: #333;
+            text-align: center;
+        }
+        
+        #flowchart {
+            width: 100%;
+            min-height: 500px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        /* Mermaid スタイルのカスタマイズ */
+        .node rect,
+        .node circle,
+        .node ellipse,
+        .node polygon,
+        .node path {
+            fill: #fff;
+            stroke: #FF9800;
+            stroke-width: 2px;
+        }
+        
+        .node text {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+            fill: #333;
+        }
+        
+        .edgePath path {
+            stroke: #666;
+            stroke-width: 2px;
+            fill: none;
+        }
+        
+        .edgeLabel {
+            background-color: white;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+        }
+        
+        /* ノードタイプ別のスタイル */
+        .flowchart-start-node rect {
+            fill: #4CAF50;
+            stroke: #2E7D32;
+        }
+        
+        .flowchart-start-node text {
+            fill: white;
+        }
+        
+        .flowchart-end-node rect {
+            fill: #F44336;
+            stroke: #C62828;
+        }
+        
+        .flowchart-end-node text {
+            fill: white;
+        }
+        
+        .flowchart-decision-node polygon {
+            fill: #FFC107;
+            stroke: #FF8F00;
+        }
+        
+        .flowchart-process-node rect {
+            fill: #2196F3;
+            stroke: #1565C0;
+        }
+        
+        .flowchart-process-node text {
+            fill: white;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1001;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            max-width: 300px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #666;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 50px;
+            font-size: 16px;
+            color: #F44336;
+            background: #FFEBEE;
+            border-radius: 8px;
+            border: 1px solid #FFCDD2;
+        }
+        
+        .mermaid-container {
+            width: 100%;
+            overflow: auto;
+        }
+        
+        .zoom-controls {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        
+        /* レスポンシブ対応 */
+        @media (max-width: 768px) {
+            #controls {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin-bottom: 20px;
+            }
+            
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 15px;
+            }
+        }
+        
+        /* ダークモード対応 */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #121212;
+                color: #fff;
+            }
+            
+            .container {
+                background: #1e1e1e;
+                color: #fff;
+            }
+            
+            #controls {
+                background: rgba(30, 30, 30, 0.95);
+                color: #fff;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- フローティングコントローラー -->
+    <div id="controls">
+        <button onclick="zoomIn()" title="ズームイン">🔍+</button>
+        <button onclick="zoomOut()" title="ズームアウト">🔍-</button>
+        <button onclick="resetZoom()" title="リセット">⟲</button>
+        <button onclick="fitToScreen()" title="画面に合わせる">📐</button>
+        <select id="themeSelect" onchange="changeTheme(this.value)">
+            <option value="default">デフォルト</option>
+            <option value="dark">ダーク</option>
+            <option value="forest">フォレスト</option>
+            <option value="neutral">ニュートラル</option>
+        </select>
+        <button onclick="downloadSVG()" title="SVGダウンロード">💾</button>
+        <button onclick="toggleFullscreen()" title="フルスクリーン">🔳</button>
+    </div>
+    
+    <div class="container">
+        <h1>{{ TITLE }}</h1>
+        
+        <!-- ツールチップ -->
+        <div id="tooltip" class="tooltip"></div>
+        
+        <!-- フローチャートコンテナ -->
+        <div id="flowchart-container" class="mermaid-container">
+            <div id="flowchart">
+                <div id="loading" class="loading">フローチャートを読み込み中...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // グローバル変数
+        let currentScale = 1;
+        let currentTheme = 'default';
+        let mermaidInitialized = false;
+        let tooltip;
+        
+        // Mermaidデータ（テンプレート変数で置換される）
+        const mermaidCode = `{{ MERMAID_DATA }}`;
+        
+        // Mermaid設定
+        const mermaidConfig = {
+            startOnLoad: false,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            },
+            themeVariables: {
+                primaryColor: '#FF9800',
+                primaryTextColor: '#333',
+                primaryBorderColor: '#F57C00',
+                lineColor: '#666',
+                sectionBkgColor: '#fff',
+                altSectionBkgColor: '#f8f9fa',
+                gridColor: '#e0e0e0'
+            }
+        };
+        
+        // 初期化
+        function init() {
+            try {
+                // ツールチップ設定
+                tooltip = d3.select("#tooltip");
+                
+                // Mermaidの初期化
+                mermaid.initialize(mermaidConfig);
+                mermaidInitialized = true;
+                
+                // フローチャートの描画
+                if (mermaidCode && mermaidCode.trim() && mermaidCode !== '{{ MERMAID_DATA }}') {
+                    renderFlowchart();
+                } else {
+                    showError("フローチャートデータが見つかりません");
+                }
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError("初期化エラーが発生しました: " + error.message);
+            }
+        }
+        
+        // フローチャートの描画
+        async function renderFlowchart() {
+            try {
+                hideLoading();
+                
+                const flowchartElement = document.getElementById('flowchart');
+                flowchartElement.innerHTML = '';
+                
+                // Mermaidでレンダリング
+                const { svg } = await mermaid.render('flowchart-diagram', mermaidCode);
+                
+                // SVGを挿入
+                flowchartElement.innerHTML = svg;
+                
+                // SVG要素に対してズームとパンを設定
+                setupZoomAndPan();
+                
+                // ノードにイベントリスナーを追加
+                setupNodeInteractions();
+                
+                console.log('Flowchart rendered successfully');
+                
+            } catch (error) {
+                console.error('Rendering error:', error);
+                showError("フローチャートの描画に失敗しました: " + error.message);
+            }
+        }
+        
+        // ズームとパンの設定
+        function setupZoomAndPan() {
+            const svgElement = document.querySelector('#flowchart svg');
+            if (!svgElement) return;
+            
+            const svg = d3.select(svgElement);
+            const g = svg.select('g');
+            
+            // ズーム動作の定義
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 5])
+                .on('zoom', (event) => {
+                    currentScale = event.transform.k;
+                    g.attr('transform', event.transform);
+                });
+            
+            // SVGにズーム機能を適用
+            svg.call(zoom);
+            
+            // 初期のズームレベルを設定
+            const bbox = g.node().getBBox();
+            const containerWidth = svgElement.parentElement.clientWidth;
+            const containerHeight = svgElement.parentElement.clientHeight;
+            
+            if (bbox.width > 0 && bbox.height > 0) {
+                const scale = Math.min(containerWidth / bbox.width, containerHeight / bbox.height) * 0.8;
+                const translateX = (containerWidth - bbox.width * scale) / 2 - bbox.x * scale;
+                const translateY = (containerHeight - bbox.height * scale) / 2 - bbox.y * scale;
+                
+                svg.call(zoom.transform, d3.zoomIdentity.translate(translateX, translateY).scale(scale));
+                currentScale = scale;
+            }
+        }
+        
+        // ノードのインタラクション設定
+        function setupNodeInteractions() {
+            const nodes = document.querySelectorAll('#flowchart .node');
+            
+            nodes.forEach(node => {
+                // マウスオーバーでツールチップ表示
+                node.addEventListener('mouseover', (event) => {
+                    const nodeId = node.id;
+                    const textElement = node.querySelector('text');
+                    const nodeText = textElement ? textElement.textContent : nodeId;
+                    
+                    showNodeTooltip(event, nodeText, getNodeType(node));
+                });
+                
+                // マウスアウトでツールチップ非表示
+                node.addEventListener('mouseout', () => {
+                    hideTooltip();
+                });
+                
+                // クリックイベント
+                node.addEventListener('click', (event) => {
+                    const nodeId = node.id;
+                    console.log('Node clicked:', nodeId);
+                    highlightNode(node);
+                });
+            });
+        }
+        
+        // ノードタイプの判定
+        function getNodeType(node) {
+            if (node.classList.contains('start') || node.textContent.includes('開始') || node.textContent.includes('start')) {
+                return '開始ノード';
+            } else if (node.classList.contains('end') || node.textContent.includes('終了') || node.textContent.includes('end')) {
+                return '終了ノード';
+            } else if (node.querySelector('polygon')) {
+                return '判定ノード';
+            } else if (node.querySelector('rect')) {
+                return '処理ノード';
+            } else if (node.querySelector('circle')) {
+                return '円形ノード';
+            }
+            return 'ノード';
+        }
+        
+        // ノードのハイライト
+        function highlightNode(node) {
+            // 既存のハイライトを削除
+            document.querySelectorAll('.highlighted').forEach(n => {
+                n.classList.remove('highlighted');
+            });
+            
+            // 新しいハイライトを追加
+            node.classList.add('highlighted');
+            
+            // スタイルを動的に追加
+            if (!document.querySelector('#highlight-style')) {
+                const style = document.createElement('style');
+                style.id = 'highlight-style';
+                style.textContent = `
+                    .highlighted rect,
+                    .highlighted circle,
+                    .highlighted ellipse,
+                    .highlighted polygon,
+                    .highlighted path {
+                        stroke: #FF5722 !important;
+                        stroke-width: 4px !important;
+                        filter: drop-shadow(0 0 8px rgba(255, 87, 34, 0.6));
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        }
+        
+        // ノードツールチップ表示
+        function showNodeTooltip(event, nodeText, nodeType) {
+            tooltip.style("opacity", 1)
+                .html(`
+                    <strong>${nodeText}</strong><br>
+                    タイプ: ${nodeType}<br>
+                    <em>クリックでハイライト</em>
+                `)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+        
+        // ツールチップ非表示
+        function hideTooltip() {
+            tooltip.style("opacity", 0);
+        }
+        
+        // ズームイン
+        function zoomIn() {
+            const svgElement = document.querySelector('#flowchart svg');
+            if (svgElement) {
+                const svg = d3.select(svgElement);
+                svg.transition().call(
+                    d3.zoom().scaleBy, 1.2
+                );
+            }
+        }
+        
+        // ズームアウト
+        function zoomOut() {
+            const svgElement = document.querySelector('#flowchart svg');
+            if (svgElement) {
+                const svg = d3.select(svgElement);
+                svg.transition().call(
+                    d3.zoom().scaleBy, 0.8
+                );
+            }
+        }
+        
+        // ズームリセット
+        function resetZoom() {
+            const svgElement = document.querySelector('#flowchart svg');
+            if (svgElement) {
+                const svg = d3.select(svgElement);
+                const g = svg.select('g');
+                
+                svg.transition().call(
+                    d3.zoom().transform,
+                    d3.zoomIdentity
+                );
+                currentScale = 1;
+            }
+        }
+        
+        // 画面に合わせる
+        function fitToScreen() {
+            const svgElement = document.querySelector('#flowchart svg');
+            if (svgElement) {
+                const svg = d3.select(svgElement);
+                const g = svg.select('g');
+                const bbox = g.node().getBBox();
+                
+                const containerWidth = svgElement.parentElement.clientWidth;
+                const containerHeight = svgElement.parentElement.clientHeight;
+                
+                if (bbox.width > 0 && bbox.height > 0) {
+                    const scale = Math.min(containerWidth / bbox.width, containerHeight / bbox.height) * 0.9;
+                    const translateX = (containerWidth - bbox.width * scale) / 2 - bbox.x * scale;
+                    const translateY = (containerHeight - bbox.height * scale) / 2 - bbox.y * scale;
+                    
+                    svg.transition().call(
+                        d3.zoom().transform,
+                        d3.zoomIdentity.translate(translateX, translateY).scale(scale)
+                    );
+                    currentScale = scale;
+                }
+            }
+        }
+        
+        // テーマ変更
+        function changeTheme(theme) {
+            currentTheme = theme;
+            
+            const themeConfig = {
+                ...mermaidConfig,
+                theme: theme
+            };
+            
+            mermaid.initialize(themeConfig);
+            
+            // 再描画
+            renderFlowchart();
+        }
+        
+        // SVGダウンロード
+        function downloadSVG() {
+            const svgElement = document.querySelector('#flowchart svg');
+            if (svgElement) {
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const svgBlob = new Blob([svgData], {type: "image/svg+xml;charset=utf-8"});
+                const svgUrl = URL.createObjectURL(svgBlob);
+                
+                const downloadLink = document.createElement('a');
+                downloadLink.href = svgUrl;
+                downloadLink.download = 'flowchart.svg';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                URL.revokeObjectURL(svgUrl);
+            }
+        }
+        
+        // フルスクリーン切り替え
+        function toggleFullscreen() {
+            const container = document.querySelector('.container');
+            
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        // ローディング非表示
+        function hideLoading() {
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.style.display = 'none';
+            }
+        }
+        
+        // エラー表示
+        function showError(message) {
+            const flowchartElement = document.getElementById('flowchart');
+            flowchartElement.innerHTML = `
+                <div class="error">
+                    <h3>⚠️ エラー</h3>
+                    <p>${message}</p>
+                    <details>
+                        <summary>デバッグ情報</summary>
+                        <pre>Mermaidコード:
+${mermaidCode || 'データなし'}</pre>
+                    </details>
+                </div>
+            `;
+        }
+        
+        // ウィンドウリサイズ処理
+        function handleResize() {
+            if (document.querySelector('#flowchart svg')) {
+                setTimeout(fitToScreen, 100);
+            }
+        }
+        
+        // キーボードショートカット
+        function setupKeyboardShortcuts() {
+            document.addEventListener('keydown', (event) => {
+                if (event.ctrlKey || event.metaKey) {
+                    switch(event.key) {
+                        case '+':
+                        case '=':
+                            event.preventDefault();
+                            zoomIn();
+                            break;
+                        case '-':
+                            event.preventDefault();
+                            zoomOut();
+                            break;
+                        case '0':
+                            event.preventDefault();
+                            resetZoom();
+                            break;
+                    }
+                }
+                
+                switch(event.key) {
+                    case 'f':
+                        event.preventDefault();
+                        fitToScreen();
+                        break;
+                    case 'F11':
+                        event.preventDefault();
+                        toggleFullscreen();
+                        break;
+                    case 's':
+                        if (event.ctrlKey || event.metaKey) {
+                            event.preventDefault();
+                            downloadSVG();
+                        }
+                        break;
+                }
+            });
+        }
+        
+        // イベントリスナー設定
+        window.addEventListener('resize', handleResize);
+        
+        // 初期化実行
+        document.addEventListener('DOMContentLoaded', () => {
+            setupKeyboardShortcuts();
+            init();
+        });
+        
+        // Mermaidエラーハンドリング
+        window.addEventListener('error', (event) => {
+            if (event.message && event.message.includes('mermaid')) {
+                console.error('Mermaid error:', event.error);
+                showError("Mermaidの描画エラーが発生しました: " + event.message);
+            }
+        });
+    </script>
+</body>
+</html>

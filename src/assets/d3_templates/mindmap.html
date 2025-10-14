@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マインドマップ - {{ TITLE }}</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+        }
+        
+        #controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            min-width: 200px;
+        }
+        
+        #controls button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        
+        #controls button:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+        
+        #controls button:active {
+            transform: translateY(0);
+        }
+        
+        #controls input[type="color"] {
+            width: 40px;
+            height: 32px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        
+        #mindmap {
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle, #ffffff 0%, #f8f9fa 100%);
+        }
+        
+        .node circle {
+            fill: #4CAF50;
+            stroke: #2E7D32;
+            stroke-width: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .node circle:hover {
+            fill: #66BB6A;
+            stroke-width: 3px;
+            r: 25;
+        }
+        
+        .node text {
+            font-family: inherit;
+            font-size: 12px;
+            fill: #333;
+            text-anchor: middle;
+            dominant-baseline: central;
+            pointer-events: none;
+            user-select: none;
+        }
+        
+        .link {
+            fill: none;
+            stroke: #8BC34A;
+            stroke-width: 2px;
+            transition: all 0.3s ease;
+        }
+        
+        .link:hover {
+            stroke: #4CAF50;
+            stroke-width: 3px;
+        }
+        
+        .node.collapsed circle {
+            fill: #FFC107;
+            stroke: #FF8F00;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1001;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        /* Loading spinner */
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <!-- フローティングコントローラー -->
+    <div id="controls">
+        <button onclick="zoomIn()" title="ズームイン">🔍+</button>
+        <button onclick="zoomOut()" title="ズームアウト">🔍-</button>
+        <button onclick="resetZoom()" title="リセット">⟲</button>
+        <button onclick="toggleOrientation()" title="縦横切替">⬌</button>
+        <button onclick="expandAll()" title="全展開">📂</button>
+        <button onclick="collapseAll()" title="全折りたたみ">📁</button>
+        <input type="color" value="#4CAF50" onchange="changeColor(this.value)" title="色変更">
+        <button onclick="fitToScreen()" title="画面に合わせる">📐</button>
+    </div>
+    
+    <!-- ツールチップ -->
+    <div id="tooltip" class="tooltip"></div>
+    
+    <!-- SVGコンテナ -->
+    <svg id="mindmap"></svg>
+    
+    <!-- ローディング表示 -->
+    <div id="loading" class="loading">マインドマップを読み込み中...</div>
+    
+    <script>
+        // グローバル変数
+        let svg, g, tree, root, zoom, tooltip;
+        let currentColor = "#4CAF50";
+        let isVertical = true;
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+        
+        // データ設定（テンプレート変数で置換される）
+        const data = {{ JSON_DATA }};
+        
+        // 初期化
+        function init() {
+            // SVG要素の設定
+            svg = d3.select("#mindmap")
+                .attr("width", width)
+                .attr("height", height);
+            
+            // ズーム機能の設定
+            zoom = d3.zoom()
+                .scaleExtent([0.1, 10])
+                .on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                });
+            
+            svg.call(zoom);
+            
+            // メイングループ
+            g = svg.append("g");
+            
+            // ツールチップの設定
+            tooltip = d3.select("#tooltip");
+            
+            // ツリーレイアウトの設定
+            tree = d3.tree().size([width - 200, height - 200]);
+            
+            // データの変換と描画
+            if (data) {
+                root = d3.hierarchy(data);
+                root.x0 = width / 2;
+                root.y0 = height / 2;
+                
+                // 初期状態では一部を折りたたみ
+                if (root.children) {
+                    root.children.forEach(collapse);
+                }
+                
+                update(root);
+                hideLoading();
+            } else {
+                showError("データが見つかりません");
+            }
+        }
+        
+        // ノードの更新
+        function update(source) {
+            // ツリーレイアウトの計算
+            const treeData = tree(root);
+            const nodes = treeData.descendants();
+            const links = treeData.descendants().slice(1);
+            
+            // ノードの位置調整（縦横切り替え対応）
+            if (!isVertical) {
+                nodes.forEach(d => {
+                    const temp = d.x;
+                    d.x = d.y;
+                    d.y = temp;
+                });
+            }
+            
+            // ノードの描画
+            const node = g.selectAll('.node')
+                .data(nodes, d => d.id || (d.id = ++nodeId));
+            
+            // 新しいノードの追加
+            const nodeEnter = node.enter().append('g')
+                .attr('class', 'node')
+                .attr('transform', d => `translate(${source.x0 || 0},${source.y0 || 0})`)
+                .on('click', click)
+                .on('mouseover', showTooltip)
+                .on('mouseout', hideTooltip);
+            
+            // 円の追加
+            nodeEnter.append('circle')
+                .attr('r', 1e-6)
+                .style('fill', d => d._children ? "#FFC107" : currentColor)
+                .style('stroke', d => d._children ? "#FF8F00" : d3.rgb(currentColor).darker());
+            
+            // テキストの追加
+            nodeEnter.append('text')
+                .attr('dy', '.35em')
+                .attr('text-anchor', 'middle')
+                .text(d => d.data.name)
+                .style('fill-opacity', 1e-6);
+            
+            // ノードの更新
+            const nodeUpdate = nodeEnter.merge(node);
+            
+            // 位置とスタイルの更新
+            nodeUpdate.transition()
+                .duration(750)
+                .attr('transform', d => `translate(${d.x},${d.y})`);
+            
+            nodeUpdate.select('circle')
+                .transition()
+                .duration(750)
+                .attr('r', 20)
+                .style('fill', d => d._children ? "#FFC107" : currentColor)
+                .style('stroke', d => d._children ? "#FF8F00" : d3.rgb(currentColor).darker());
+            
+            nodeUpdate.select('text')
+                .transition()
+                .duration(750)
+                .style('fill-opacity', 1);
+            
+            // 不要なノードの削除
+            const nodeExit = node.exit().transition()
+                .duration(750)
+                .attr('transform', d => `translate(${source.x},${source.y})`)
+                .remove();
+            
+            nodeExit.select('circle')
+                .attr('r', 1e-6);
+            
+            nodeExit.select('text')
+                .style('fill-opacity', 1e-6);
+            
+            // リンクの描画
+            const link = g.selectAll('.link')
+                .data(links, d => d.id);
+            
+            // 新しいリンクの追加
+            const linkEnter = link.enter().insert('path', 'g')
+                .attr('class', 'link')
+                .attr('d', d => {
+                    const o = {x: source.x0 || 0, y: source.y0 || 0};
+                    return diagonal(o, o);
+                });
+            
+            // リンクの更新
+            const linkUpdate = linkEnter.merge(link);
+            
+            linkUpdate.transition()
+                .duration(750)
+                .attr('d', d => diagonal(d, d.parent));
+            
+            // 不要なリンクの削除
+            const linkExit = link.exit().transition()
+                .duration(750)
+                .attr('d', d => {
+                    const o = {x: source.x, y: source.y};
+                    return diagonal(o, o);
+                })
+                .remove();
+            
+            // 前回の位置を保存
+            nodes.forEach(d => {
+                d.x0 = d.x;
+                d.y0 = d.y;
+            });
+        }
+        
+        // 対角線（ベジェ曲線）の計算
+        function diagonal(s, d) {
+            const path = `M ${s.x} ${s.y}
+                         C ${s.x} ${(s.y + d.y) / 2},
+                           ${d.x} ${(s.y + d.y) / 2},
+                           ${d.x} ${d.y}`;
+            return path;
+        }
+        
+        // ノードクリック処理
+        function click(event, d) {
+            if (d.children) {
+                d._children = d.children;
+                d.children = null;
+            } else {
+                d.children = d._children;
+                d._children = null;
+            }
+            update(d);
+        }
+        
+        // ノード折りたたみ
+        function collapse(d) {
+            if (d.children) {
+                d._children = d.children;
+                d._children.forEach(collapse);
+                d.children = null;
+            }
+        }
+        
+        // ツールチップ表示
+        function showTooltip(event, d) {
+            tooltip.style("opacity", 1)
+                .html(`<strong>${d.data.name}</strong><br>レベル: ${d.depth}<br>子ノード: ${d.children ? d.children.length : d._children ? d._children.length : 0}`)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+        
+        // ツールチップ非表示
+        function hideTooltip() {
+            tooltip.style("opacity", 0);
+        }
+        
+        // ズームイン
+        function zoomIn() {
+            svg.transition().call(
+                zoom.scaleBy, 1.2
+            );
+        }
+        
+        // ズームアウト
+        function zoomOut() {
+            svg.transition().call(
+                zoom.scaleBy, 0.8
+            );
+        }
+        
+        // ズームリセット
+        function resetZoom() {
+            svg.transition().call(
+                zoom.transform,
+                d3.zoomIdentity.translate(width / 2, height / 2).scale(1)
+            );
+        }
+        
+        // 画面に合わせる
+        function fitToScreen() {
+            const bounds = g.node().getBBox();
+            const fullWidth = width;
+            const fullHeight = height;
+            const widthScale = fullWidth / bounds.width;
+            const heightScale = fullHeight / bounds.height;
+            const scale = Math.min(widthScale, heightScale) * 0.9;
+            const translateX = fullWidth / 2 - scale * (bounds.x + bounds.width / 2);
+            const translateY = fullHeight / 2 - scale * (bounds.y + bounds.height / 2);
+            
+            svg.transition().call(
+                zoom.transform,
+                d3.zoomIdentity.translate(translateX, translateY).scale(scale)
+            );
+        }
+        
+        // 縦横切り替え
+        function toggleOrientation() {
+            isVertical = !isVertical;
+            tree = isVertical 
+                ? d3.tree().size([width - 200, height - 200])
+                : d3.tree().size([height - 200, width - 200]);
+            update(root);
+        }
+        
+        // 全展開
+        function expandAll() {
+            function expand(d) {
+                if (d._children) {
+                    d.children = d._children;
+                    d._children = null;
+                }
+                if (d.children) {
+                    d.children.forEach(expand);
+                }
+            }
+            expand(root);
+            update(root);
+        }
+        
+        // 全折りたたみ
+        function collapseAll() {
+            if (root.children) {
+                root.children.forEach(collapse);
+                update(root);
+            }
+        }
+        
+        // 色変更
+        function changeColor(color) {
+            currentColor = color;
+            g.selectAll('.node circle')
+                .style('fill', d => d._children ? "#FFC107" : color)
+                .style('stroke', d => d._children ? "#FF8F00" : d3.rgb(color).darker());
+        }
+        
+        // ローディング非表示
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        // エラー表示
+        function showError(message) {
+            document.getElementById('loading').innerHTML = `エラー: ${message}`;
+        }
+        
+        // ウィンドウリサイズ処理
+        function handleResize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            
+            svg.attr("width", width).attr("height", height);
+            
+            tree.size([width - 200, height - 200]);
+            
+            if (root) {
+                update(root);
+            }
+        }
+        
+        // ノードID生成用
+        let nodeId = 0;
+        
+        // イベントリスナー
+        window.addEventListener('resize', handleResize);
+        
+        // 初期化実行
+        document.addEventListener('DOMContentLoaded', init);
+        
+        // キーボードショートカット
+        document.addEventListener('keydown', (event) => {
+            if (event.ctrlKey || event.metaKey) {
+                switch(event.key) {
+                    case '+':
+                    case '=':
+                        event.preventDefault();
+                        zoomIn();
+                        break;
+                    case '-':
+                        event.preventDefault();
+                        zoomOut();
+                        break;
+                    case '0':
+                        event.preventDefault();
+                        resetZoom();
+                        break;
+                }
+            }
+            
+            switch(event.key) {
+                case 'f':
+                    event.preventDefault();
+                    fitToScreen();
+                    break;
+                case 'r':
+                    event.preventDefault();
+                    toggleOrientation();
+                    break;
+                case 'e':
+                    event.preventDefault();
+                    expandAll();
+                    break;
+                case 'c':
+                    event.preventDefault();
+                    collapseAll();
+                    break;
+            }
+        });
+    </script>
+</body>
+</html>

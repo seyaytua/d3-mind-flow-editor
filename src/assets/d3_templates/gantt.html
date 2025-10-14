@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ガントチャート - {{ TITLE }}</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+        }
+        
+        #controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            min-width: 200px;
+        }
+        
+        #controls button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            background: #2196F3;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        
+        #controls button:hover {
+            background: #1976D2;
+            transform: translateY(-1px);
+        }
+        
+        #controls select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin: 20px 0;
+        }
+        
+        h1 {
+            margin: 0 0 20px 0;
+            color: #333;
+            text-align: center;
+        }
+        
+        #gantt {
+            width: 100%;
+            height: 600px;
+            overflow: auto;
+        }
+        
+        .task-bar {
+            fill: #4CAF50;
+            stroke: #2E7D32;
+            stroke-width: 1;
+            cursor: pointer;
+        }
+        
+        .task-bar:hover {
+            fill: #66BB6A;
+            stroke-width: 2;
+        }
+        
+        .task-bar.completed {
+            fill: #8BC34A;
+        }
+        
+        .task-bar.in-progress {
+            fill: #FFC107;
+        }
+        
+        .task-bar.not-started {
+            fill: #E0E0E0;
+        }
+        
+        .progress-bar {
+            fill: #4CAF50;
+            opacity: 0.7;
+        }
+        
+        .dependency-line {
+            stroke: #FF5722;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+        
+        .task-text {
+            font-size: 12px;
+            fill: #333;
+            text-anchor: start;
+            dominant-baseline: middle;
+        }
+        
+        .date-text {
+            font-size: 10px;
+            fill: #666;
+            text-anchor: middle;
+        }
+        
+        .grid-line {
+            stroke: #e0e0e0;
+            stroke-width: 1;
+        }
+        
+        .today-line {
+            stroke: #FF5722;
+            stroke-width: 2;
+            stroke-dasharray: 4,4;
+        }
+        
+        .category-header {
+            fill: #f5f5f5;
+            stroke: #ddd;
+            stroke-width: 1;
+        }
+        
+        .category-text {
+            font-size: 14px;
+            font-weight: bold;
+            fill: #333;
+            text-anchor: start;
+            dominant-baseline: middle;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1001;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            max-width: 300px;
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #666;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            min-width: 120px;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- フローティングコントローラー -->
+    <div id="controls">
+        <button onclick="zoomIn()" title="ズームイン">🔍+</button>
+        <button onclick="zoomOut()" title="ズームアウト">🔍-</button>
+        <button onclick="resetZoom()" title="リセット">⟲</button>
+        <button onclick="fitToScreen()" title="画面に合わせる">📐</button>
+        <select id="viewMode" onchange="changeView(this.value)">
+            <option value="days">日単位</option>
+            <option value="weeks">週単位</option>
+            <option value="months">月単位</option>
+        </select>
+        <button onclick="toggleToday()" title="今日を表示">📅</button>
+    </div>
+    
+    <div class="container">
+        <h1>{{ TITLE }}</h1>
+        
+        <!-- 統計情報 -->
+        <div class="stats" id="stats">
+            <div class="stat-item">
+                <div class="stat-number" id="totalTasks">0</div>
+                <div class="stat-label">総タスク数</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="completedTasks">0</div>
+                <div class="stat-label">完了タスク</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="overdueTasks">0</div>
+                <div class="stat-label">遅延タスク</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="progressPercent">0%</div>
+                <div class="stat-label">全体進捗</div>
+            </div>
+        </div>
+        
+        <!-- 凡例 -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #8BC34A;"></div>
+                <span>完了</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #FFC107;"></div>
+                <span>進行中</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #E0E0E0;"></div>
+                <span>未開始</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #4CAF50;"></div>
+                <span>進捗バー</span>
+            </div>
+        </div>
+        
+        <!-- ツールチップ -->
+        <div id="tooltip" class="tooltip"></div>
+        
+        <!-- SVGコンテナ -->
+        <div id="gantt-container">
+            <svg id="gantt"></svg>
+        </div>
+        
+        <!-- ローディング表示 -->
+        <div id="loading" class="loading">ガントチャートを読み込み中...</div>
+    </div>
+    
+    <script>
+        // グローバル変数
+        let svg, g, xScale, yScale, zoom, tooltip;
+        let data = {{ JSON_DATA }};
+        let viewMode = 'days';
+        let showToday = true;
+        
+        const margin = { top: 60, right: 50, bottom: 60, left: 200 };
+        let width = 1200 - margin.left - margin.right;
+        let height = 600 - margin.top - margin.bottom;
+        
+        // 色設定
+        const statusColors = {
+            completed: '#8BC34A',
+            'in-progress': '#FFC107',
+            'not-started': '#E0E0E0'
+        };
+        
+        // 初期化
+        function init() {
+            if (!data || !data.tasks) {
+                showError("ガントチャートデータが見つかりません");
+                return;
+            }
+            
+            // データの前処理
+            processData();
+            
+            // SVG要素の設定
+            const container = d3.select("#gantt-container");
+            const containerWidth = container.node().getBoundingClientRect().width;
+            width = containerWidth - margin.left - margin.right;
+            
+            svg = d3.select("#gantt")
+                .attr("width", containerWidth)
+                .attr("height", height + margin.top + margin.bottom);
+            
+            // ズーム機能の設定
+            zoom = d3.zoom()
+                .scaleExtent([0.5, 5])
+                .on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                });
+            
+            svg.call(zoom);
+            
+            // メイングループ
+            g = svg.append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            // マーカー（矢印）の定義
+            svg.append("defs").append("marker")
+                .attr("id", "arrowhead")
+                .attr("refX", 9)
+                .attr("refY", 3)
+                .attr("markerWidth", 10)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto")
+                .append("path")
+                .attr("d", "M0,0 L0,6 L9,3 z")
+                .attr("fill", "#FF5722");
+            
+            // ツールチップの設定
+            tooltip = d3.select("#tooltip");
+            
+            // チャートを描画
+            drawChart();
+            
+            // 統計情報を更新
+            updateStats();
+            
+            hideLoading();
+        }
+        
+        // データの前処理
+        function processData() {
+            const parseDate = d3.timeParse("%Y-%m-%d");
+            
+            data.tasks.forEach(task => {
+                task.startDate = parseDate(task.start);
+                task.endDate = parseDate(task.end);
+                task.progress = +task.progress;
+                
+                // ステータスの判定
+                if (task.progress >= 1.0) {
+                    task.status = 'completed';
+                } else if (task.progress > 0) {
+                    task.status = 'in-progress';
+                } else {
+                    task.status = 'not-started';
+                }
+                
+                // 遅延チェック
+                const today = new Date();
+                task.isOverdue = task.endDate < today && task.progress < 1.0;
+            });
+            
+            // カテゴリ別にグループ化
+            data.categories = d3.group(data.tasks, d => d.category);
+        }
+        
+        // チャート描画
+        function drawChart() {
+            // スケールの設定
+            const minDate = d3.min(data.tasks, d => d.startDate);
+            const maxDate = d3.max(data.tasks, d => d.endDate);
+            
+            // 日付範囲を少し拡張
+            const dateRange = maxDate - minDate;
+            const padding = dateRange * 0.1;
+            
+            xScale = d3.scaleTime()
+                .domain([new Date(minDate - padding), new Date(maxDate + padding)])
+                .range([0, width]);
+            
+            yScale = d3.scaleBand()
+                .domain(data.tasks.map(d => d.task))
+                .range([0, height])
+                .paddingInner(0.1);
+            
+            // 軸の描画
+            drawAxes();
+            
+            // グリッドの描画
+            drawGrid();
+            
+            // 今日の線
+            if (showToday) {
+                drawTodayLine();
+            }
+            
+            // タスクバーの描画
+            drawTaskBars();
+            
+            // 依存関係の描画
+            drawDependencies();
+        }
+        
+        // 軸の描画
+        function drawAxes() {
+            // X軸（日付）
+            const xAxis = d3.axisBottom(xScale)
+                .tickFormat(d3.timeFormat(getTimeFormat()))
+                .ticks(getTimeTicks());
+            
+            g.append("g")
+                .attr("class", "x-axis")
+                .attr("transform", `translate(0,${height})`)
+                .call(xAxis)
+                .selectAll("text")
+                .attr("class", "date-text");
+            
+            // Y軸（タスク）
+            const yAxis = d3.axisLeft(yScale);
+            
+            g.append("g")
+                .attr("class", "y-axis")
+                .call(yAxis)
+                .selectAll("text")
+                .attr("class", "task-text");
+        }
+        
+        // グリッドの描画
+        function drawGrid() {
+            // 垂直グリッド線
+            g.selectAll(".grid-line.vertical")
+                .data(xScale.ticks(getTimeTicks()))
+                .enter()
+                .append("line")
+                .attr("class", "grid-line vertical")
+                .attr("x1", d => xScale(d))
+                .attr("x2", d => xScale(d))
+                .attr("y1", 0)
+                .attr("y2", height);
+            
+            // 水平グリッド線
+            g.selectAll(".grid-line.horizontal")
+                .data(data.tasks)
+                .enter()
+                .append("line")
+                .attr("class", "grid-line horizontal")
+                .attr("x1", 0)
+                .attr("x2", width)
+                .attr("y1", d => yScale(d.task) + yScale.bandwidth())
+                .attr("y2", d => yScale(d.task) + yScale.bandwidth());
+        }
+        
+        // 今日の線
+        function drawTodayLine() {
+            const today = new Date();
+            if (today >= xScale.domain()[0] && today <= xScale.domain()[1]) {
+                g.append("line")
+                    .attr("class", "today-line")
+                    .attr("x1", xScale(today))
+                    .attr("x2", xScale(today))
+                    .attr("y1", 0)
+                    .attr("y2", height);
+            }
+        }
+        
+        // タスクバーの描画
+        function drawTaskBars() {
+            const taskBars = g.selectAll(".task-bar")
+                .data(data.tasks)
+                .enter()
+                .append("rect")
+                .attr("class", d => `task-bar ${d.status}`)
+                .attr("x", d => xScale(d.startDate))
+                .attr("y", d => yScale(d.task))
+                .attr("width", d => xScale(d.endDate) - xScale(d.startDate))
+                .attr("height", yScale.bandwidth())
+                .attr("fill", d => statusColors[d.status])
+                .on("mouseover", showTooltip)
+                .on("mouseout", hideTooltip)
+                .on("click", (event, d) => {
+                    console.log("Task clicked:", d);
+                });
+            
+            // 進捗バーの描画
+            g.selectAll(".progress-bar")
+                .data(data.tasks.filter(d => d.progress > 0 && d.progress < 1))
+                .enter()
+                .append("rect")
+                .attr("class", "progress-bar")
+                .attr("x", d => xScale(d.startDate))
+                .attr("y", d => yScale(d.task))
+                .attr("width", d => (xScale(d.endDate) - xScale(d.startDate)) * d.progress)
+                .attr("height", yScale.bandwidth());
+        }
+        
+        // 依存関係の描画
+        function drawDependencies() {
+            if (!data.dependencies) return;
+            
+            const dependencies = [];
+            
+            data.tasks.forEach(task => {
+                if (task.dependencies && task.dependencies.trim()) {
+                    const deps = task.dependencies.split(';').map(d => d.trim());
+                    deps.forEach(depName => {
+                        const depTask = data.tasks.find(t => t.task === depName);
+                        if (depTask) {
+                            dependencies.push({
+                                source: depTask,
+                                target: task
+                            });
+                        }
+                    });
+                }
+            });
+            
+            g.selectAll(".dependency-line")
+                .data(dependencies)
+                .enter()
+                .append("path")
+                .attr("class", "dependency-line")
+                .attr("d", d => {
+                    const x1 = xScale(d.source.endDate);
+                    const y1 = yScale(d.source.task) + yScale.bandwidth() / 2;
+                    const x2 = xScale(d.target.startDate);
+                    const y2 = yScale(d.target.task) + yScale.bandwidth() / 2;
+                    
+                    const midX = (x1 + x2) / 2;
+                    
+                    return `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
+                });
+        }
+        
+        // ツールチップ表示
+        function showTooltip(event, d) {
+            const formatDate = d3.timeFormat("%Y-%m-%d");
+            const duration = Math.ceil((d.endDate - d.startDate) / (1000 * 60 * 60 * 24));
+            
+            tooltip.style("opacity", 1)
+                .html(`
+                    <strong>${d.task}</strong><br>
+                    カテゴリ: ${d.category}<br>
+                    開始: ${formatDate(d.startDate)}<br>
+                    終了: ${formatDate(d.endDate)}<br>
+                    期間: ${duration}日<br>
+                    進捗: ${Math.round(d.progress * 100)}%<br>
+                    ステータス: ${getStatusText(d.status)}<br>
+                    ${d.isOverdue ? '<span style="color: #FF5722;">⚠️ 遅延中</span>' : ''}
+                    ${d.dependencies ? `<br>依存: ${d.dependencies}` : ''}
+                `)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+        
+        // ツールチップ非表示
+        function hideTooltip() {
+            tooltip.style("opacity", 0);
+        }
+        
+        // ステータステキスト取得
+        function getStatusText(status) {
+            const statusMap = {
+                'completed': '完了',
+                'in-progress': '進行中',
+                'not-started': '未開始'
+            };
+            return statusMap[status] || status;
+        }
+        
+        // 統計情報更新
+        function updateStats() {
+            const totalTasks = data.tasks.length;
+            const completedTasks = data.tasks.filter(d => d.status === 'completed').length;
+            const overdueTasks = data.tasks.filter(d => d.isOverdue).length;
+            const avgProgress = d3.mean(data.tasks, d => d.progress) * 100;
+            
+            document.getElementById('totalTasks').textContent = totalTasks;
+            document.getElementById('completedTasks').textContent = completedTasks;
+            document.getElementById('overdueTasks').textContent = overdueTasks;
+            document.getElementById('progressPercent').textContent = Math.round(avgProgress) + '%';
+        }
+        
+        // 時間フォーマット取得
+        function getTimeFormat() {
+            switch(viewMode) {
+                case 'days': return "%m/%d";
+                case 'weeks': return "%m/%d";
+                case 'months': return "%Y/%m";
+                default: return "%m/%d";
+            }
+        }
+        
+        // 時間ティック取得
+        function getTimeTicks() {
+            switch(viewMode) {
+                case 'days': return d3.timeDay.every(1);
+                case 'weeks': return d3.timeWeek.every(1);
+                case 'months': return d3.timeMonth.every(1);
+                default: return d3.timeDay.every(1);
+            }
+        }
+        
+        // ズームイン
+        function zoomIn() {
+            svg.transition().call(zoom.scaleBy, 1.2);
+        }
+        
+        // ズームアウト
+        function zoomOut() {
+            svg.transition().call(zoom.scaleBy, 0.8);
+        }
+        
+        // ズームリセット
+        function resetZoom() {
+            svg.transition().call(zoom.transform, d3.zoomIdentity);
+        }
+        
+        // 画面に合わせる
+        function fitToScreen() {
+            resetZoom();
+        }
+        
+        // 表示モード変更
+        function changeView(mode) {
+            viewMode = mode;
+            g.selectAll("*").remove();
+            drawChart();
+        }
+        
+        // 今日の線表示切り替え
+        function toggleToday() {
+            showToday = !showToday;
+            g.select(".today-line").remove();
+            if (showToday) {
+                drawTodayLine();
+            }
+        }
+        
+        // ローディング非表示
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        // エラー表示
+        function showError(message) {
+            document.getElementById('loading').innerHTML = `エラー: ${message}`;
+        }
+        
+        // 初期化実行
+        document.addEventListener('DOMContentLoaded', init);
+        
+        // ウィンドウリサイズ処理
+        window.addEventListener('resize', () => {
+            const container = d3.select("#gantt-container");
+            const containerWidth = container.node().getBoundingClientRect().width;
+            width = containerWidth - margin.left - margin.right;
+            
+            svg.attr("width", containerWidth);
+            
+            if (xScale) {
+                xScale.range([0, width]);
+                g.selectAll("*").remove();
+                drawChart();
+            }
+        });
+    </script>
+</body>
+</html>
