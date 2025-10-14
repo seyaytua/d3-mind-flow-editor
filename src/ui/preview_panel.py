@@ -116,9 +116,18 @@ class PreviewPanel(QWidget):
         settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
         
-        # Enable developer tools in debug mode
+        # Enable developer tools in debug mode (check if attribute exists for compatibility)
         if logger.get_logger().level <= 10:  # DEBUG level
-            settings.setAttribute(QWebEngineSettings.DeveloperExtrasEnabled, True)
+            try:
+                # Try different possible attribute names for developer tools
+                if hasattr(QWebEngineSettings, 'DeveloperExtrasEnabled'):
+                    settings.setAttribute(QWebEngineSettings.DeveloperExtrasEnabled, True)
+                elif hasattr(QWebEngineSettings, 'WebAttribute') and hasattr(QWebEngineSettings.WebAttribute, 'DeveloperExtrasEnabled'):
+                    settings.setAttribute(QWebEngineSettings.WebAttribute.DeveloperExtrasEnabled, True)
+                else:
+                    logger.debug("Developer tools setting not available in this PySide6 version")
+            except AttributeError as e:
+                logger.debug(f"Developer tools setting failed: {e}")
         
         # Set zoom factor based on display settings
         zoom_factor = self.resolution_manager.get_scaling_factor()

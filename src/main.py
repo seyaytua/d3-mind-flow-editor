@@ -54,9 +54,17 @@ class Application(QApplication):
         
     def _setup_application(self):
         """Setup application-wide settings"""
-        # Set up high DPI support
-        self.setAttribute(Qt.AA_EnableHighDpiScaling)
-        self.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        # Set up high DPI support (check for newer PySide6 compatibility)
+        try:
+            # These attributes are deprecated in newer PySide6 versions
+            # but we'll try them for backward compatibility
+            if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+                self.setAttribute(Qt.AA_EnableHighDpiScaling)
+            if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+                self.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        except AttributeError:
+            # Newer PySide6 versions handle HiDPI automatically
+            logger_module.logger.debug("High DPI attributes not needed in this PySide6 version")
         
         # Set application style
         self.setStyle('Fusion')  # Modern cross-platform style
