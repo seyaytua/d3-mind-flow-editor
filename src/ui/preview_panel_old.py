@@ -112,23 +112,44 @@ class PreviewPanel(QWidget):
         """Setup web view settings"""
         settings = self.web_view.settings()
         
-        # Enable JavaScript and other features
-        settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
-        settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+        # Enable JavaScript and other features (PySide6 6.10+ compatible)
+        try:
+            # PySide6 6.10+ requires WebAttribute class for settings
+            if hasattr(QWebEngineSettings, 'WebAttribute'):
+                web_attr = QWebEngineSettings.WebAttribute
+                
+                # Enable JavaScript (critical for D3.js)
+                if hasattr(web_attr, 'JavascriptEnabled'):
+                    settings.setAttribute(web_attr.JavascriptEnabled, True)
+                    logger.debug("JavaScript enabled")
+                
+                # Enable local content access (needed for HTML templates)
+                if hasattr(web_attr, 'LocalContentCanAccessRemoteUrls'):
+                    settings.setAttribute(web_attr.LocalContentCanAccessRemoteUrls, True)
+                    logger.debug("Local content remote URL access enabled")
+                
+                if hasattr(web_attr, 'LocalContentCanAccessFileUrls'):
+                    settings.setAttribute(web_attr.LocalContentCanAccessFileUrls, True)
+                    logger.debug("Local content file URL access enabled")
+                
+                logger.info("WebEngine settings configured for PySide6 6.10+")
+                
+            else:
+                # Fallback for older PySide6 versions (pre-6.10)
+                settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+                settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
+                settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+                logger.info("WebEngine settings configured for older PySide6")
+                
+        except Exception as e:
+            logger.error(f"WebEngine settings configuration failed: {e}")
+            logger.warning("Continuing with default settings - some features may be limited")
         
-        # Enable developer tools in debug mode (check if attribute exists for compatibility)
+        # Developer tools setting (removed in PySide6 6.10+)
+        # This functionality is no longer needed for the application to work
+        # and has been deprecated/removed in newer versions
         if logger.get_logger().level <= 10:  # DEBUG level
-            try:
-                # Try different possible attribute names for developer tools
-                if hasattr(QWebEngineSettings, 'DeveloperExtrasEnabled'):
-                    settings.setAttribute(QWebEngineSettings.DeveloperExtrasEnabled, True)
-                elif hasattr(QWebEngineSettings, 'WebAttribute') and hasattr(QWebEngineSettings.WebAttribute, 'DeveloperExtrasEnabled'):
-                    settings.setAttribute(QWebEngineSettings.WebAttribute.DeveloperExtrasEnabled, True)
-                else:
-                    logger.debug("Developer tools setting not available in this PySide6 version")
-            except AttributeError as e:
-                logger.debug(f"Developer tools setting failed: {e}")
+            logger.debug("Developer tools setting disabled (PySide6 6.10+ compatibility)")
         
         # Set zoom factor based on display settings
         zoom_factor = self.resolution_manager.get_scaling_factor()

@@ -113,23 +113,44 @@ class PreviewPanel(QWidget):
         """Setup web view settings"""
         settings = self.web_view.settings()
         
-        # Enable JavaScript and other features
-        settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
-        settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+        # Enable JavaScript and other features (PySide6 6.10+ compatible)
+        try:
+            # PySide6 6.10+ requires WebAttribute class for settings
+            if hasattr(QWebEngineSettings, 'WebAttribute'):
+                web_attr = QWebEngineSettings.WebAttribute
+                
+                # Enable JavaScript (critical for D3.js)
+                if hasattr(web_attr, 'JavascriptEnabled'):
+                    settings.setAttribute(web_attr.JavascriptEnabled, True)
+                    logger.debug("JavaScript enabled")
+                
+                # Enable local content access (needed for HTML templates)
+                if hasattr(web_attr, 'LocalContentCanAccessRemoteUrls'):
+                    settings.setAttribute(web_attr.LocalContentCanAccessRemoteUrls, True)
+                    logger.debug("Local content remote URL access enabled")
+                
+                if hasattr(web_attr, 'LocalContentCanAccessFileUrls'):
+                    settings.setAttribute(web_attr.LocalContentCanAccessFileUrls, True)
+                    logger.debug("Local content file URL access enabled")
+                
+                logger.info("WebEngine settings configured for PySide6 6.10+")
+                
+            else:
+                # Fallback for older PySide6 versions (pre-6.10)
+                settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+                settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
+                settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+                logger.info("WebEngine settings configured for older PySide6")
+                
+        except Exception as e:
+            logger.error(f"WebEngine settings configuration failed: {e}")
+            logger.warning("Continuing with default settings - some features may be limited")
         
-        # Enable developer tools in debug mode (check if attribute exists for compatibility)
+        # Developer tools setting (removed in PySide6 6.10+)
+        # This functionality is no longer needed for the application to work
+        # and has been deprecated/removed in newer versions
         if logger.get_logger().level <= 10:  # DEBUG level
-            try:
-                # Try different possible attribute names for developer tools
-                if hasattr(QWebEngineSettings, 'DeveloperExtrasEnabled'):
-                    settings.setAttribute(QWebEngineSettings.DeveloperExtrasEnabled, True)
-                elif hasattr(QWebEngineSettings, 'WebAttribute') and hasattr(QWebEngineSettings.WebAttribute, 'DeveloperExtrasEnabled'):
-                    settings.setAttribute(QWebEngineSettings.WebAttribute.DeveloperExtrasEnabled, True)
-                else:
-                    logger.debug("Developer tools setting not available in this PySide6 version")
-            except AttributeError as e:
-                logger.debug(f"Developer tools setting failed: {e}")
+            logger.debug("Developer tools setting disabled (PySide6 6.10+ compatibility)")
         
         # Set zoom factor based on display settings
         zoom_factor = self.resolution_manager.get_scaling_factor()
@@ -268,6 +289,9 @@ class PreviewPanel(QWidget):
         if success:
             self.status_label.setText("プレビュー更新完了")
             logger.debug("Preview loaded successfully")
+            
+            # Update statistics after successful load
+            self._update_diagram_statistics()
         else:
             error_msg = "プレビューの読み込みに失敗しました"
             self.status_label.setText(error_msg)
@@ -309,6 +333,119 @@ class PreviewPanel(QWidget):
         self.status_label.setText(f"ズーム: {int(default_zoom * 100)}% (デフォルト)")
         
         logger.debug(f"Zoom reset to: {default_zoom}")
+    
+    def _update_diagram_statistics(self):
+        """Update diagram statistics display"""
+        if not self.current_content or not self.current_content.strip():
+            return
+        
+        try:
+            stats = self._calculate_diagram_statistics(self.current_content, self.current_type)
+            
+            # Execute JavaScript to update statistics in the web view
+            js_code = f"""
+            // Update statistics display using actual IDs from templates
+            const nodeCountEl = document.getElementById('nodeCount');
+            const levelCountEl = document.getElementById('levelCount');
+            const zoomLevelEl = document.getElementById('zoomLevel');
+            const taskCountEl = document.getElementById('taskCount');
+            const phaseCountEl = document.getElementById('phaseCount');
+            
+            // Update mindmap statistics
+            if (nodeCountEl) nodeCountEl.textContent = '{stats.get("nodes", 0)}';
+            if (levelCountEl) levelCountEl.textContent = '{stats.get("levels", 0)}';
+            if (zoomLevelEl) zoomLevelEl.textContent = '100%';
+            
+            // Update gantt statistics  
+            if (taskCountEl) taskCountEl.textContent = '{stats.get("nodes", 0)}';
+            if (phaseCountEl) phaseCountEl.textContent = '{stats.get("levels", 0)}';
+            
+            // Update flowchart statistics
+            const flowNodeCountEl = document.querySelector('#flowNodeCount, #nodeCountFlow');
+            const flowEdgeCountEl = document.querySelector('#edgeCount, #connectionCount');
+            if (flowNodeCountEl) flowNodeCountEl.textContent = '{stats.get("nodes", 0)}';
+            if (flowEdgeCountEl) flowEdgeCountEl.textContent = '{stats.get("connections", 0)}';
+            
+            // Call updateStats function if it exists (some templates have this)
+            if (typeof updateStats === 'function') {{
+                updateStats();
+            }}
+            
+            console.log('Statistics updated:', {json.dumps(stats)});
+            """
+            
+            self.web_view.page().runJavaScript(js_code)
+            logger.debug(f"Statistics updated: {stats}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to update statistics: {e}")
+    
+    def _calculate_diagram_statistics(self, content: str, diagram_type: str) -> dict:
+        """Calculate statistics for the current diagram"""
+        stats = {"nodes": 0, "levels": 0, "connections": 0}
+        
+        try:
+            if diagram_type == DiagramType.MINDMAP:
+                stats = self._calculate_mindmap_statistics(content)
+            elif diagram_type == DiagramType.FLOWCHART:
+                stats = self._calculate_flowchart_statistics(content)
+            elif diagram_type == DiagramType.GANTT:
+                stats = self._calculate_gantt_statistics(content)
+                
+        except Exception as e:
+            logger.warning(f"Statistics calculation failed: {e}")
+            
+        return stats
+    
+    def _calculate_mindmap_statistics(self, content: str) -> dict:
+        """Calculate mindmap statistics from CSV content"""
+        try:
+            from ..core.csv_parser import parse_mindmap_csv
+            data = parse_mindmap_csv(content)
+            
+            nodes = len(data.get('nodes', []))
+            levels = data.get('max_level', 0)
+            connections = max(0, nodes - 1)  # N nodes = N-1 connections in tree
+            
+            return {"nodes": nodes, "levels": levels, "connections": connections}
+        except Exception:
+            # Fallback: count CSV lines
+            lines = [line.strip() for line in content.split('\n') if line.strip()]
+            return {"nodes": len(lines), "levels": 1, "connections": max(0, len(lines) - 1)}
+    
+    def _calculate_flowchart_statistics(self, content: str) -> dict:
+        """Calculate flowchart statistics from Mermaid content"""
+        try:
+            from ..core.mermaid_parser import parse_mermaid
+            data = parse_mermaid(content)
+            
+            nodes = len(data.get('nodes', []))
+            connections = len(data.get('edges', []))
+            levels = 1  # Flowcharts don't have strict levels
+            
+            return {"nodes": nodes, "levels": levels, "connections": connections}
+        except Exception:
+            # Fallback: count lines with arrows
+            lines = content.split('\n')
+            arrows = sum(1 for line in lines if '-->' in line or '->' in line)
+            nodes = sum(1 for line in lines if line.strip() and not line.strip().startswith('flowchart'))
+            return {"nodes": nodes, "levels": 1, "connections": arrows}
+    
+    def _calculate_gantt_statistics(self, content: str) -> dict:
+        """Calculate Gantt chart statistics from CSV content"""
+        try:
+            from ..core.csv_parser import parse_gantt_csv
+            data = parse_gantt_csv(content)
+            
+            tasks = len(data.get('tasks', []))
+            dependencies = sum(1 for task in data.get('tasks', []) if task.get('dependencies'))
+            phases = len(set(task.get('category', 'default') for task in data.get('tasks', [])))
+            
+            return {"nodes": tasks, "levels": phases, "connections": dependencies}
+        except Exception:
+            # Fallback: count CSV lines
+            lines = [line.strip() for line in content.split('\n') if line.strip() and ',' in line]
+            return {"nodes": len(lines), "levels": 1, "connections": 0}
     
     def clear(self):
         """Clear preview content"""

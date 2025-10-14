@@ -6,7 +6,7 @@ Main window for D3-Mind-Flow-Editor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QSplitter, QTabWidget, QToolBar, QMenuBar, QMenu,
-    QStatusBar, QMessageBox, QApplication
+    QStatusBar, QMessageBox, QApplication, QFileDialog
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence
@@ -59,7 +59,20 @@ class MainWindow(QMainWindow):
         # Apply configuration
         self._apply_config()
         
+        # Initial preview update (delayed to ensure UI is ready)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, self._initial_preview_update)
+        
         logger.info("Main window initialized")
+    
+    def _initial_preview_update(self):
+        """Perform initial preview update"""
+        try:
+            # Update preview with initial content
+            self._refresh_preview()
+            logger.debug("Initial preview updated")
+        except Exception as e:
+            logger.warning(f"Initial preview update failed: {e}")
     
     def _setup_ui(self):
         """Setup main UI layout"""
@@ -366,13 +379,80 @@ class MainWindow(QMainWindow):
     
     def _export_diagram(self, format_type: str):
         """Export current diagram"""
-        if not self.input_panel.get_content().strip():
+        content = self.input_panel.get_content().strip()
+        if not content:
             QMessageBox.warning(self, "警告", "エクスポートする内容がありません。")
             return
         
-        # TODO: Implement export functionality
-        self.status_bar.showMessage(f"{format_type.upper()}エクスポート機能は開発中です", 2000)
-        logger.info(f"Export requested: {format_type}")
+        # Get diagram type
+        diagram_type = self.input_panel.get_diagram_type()
+        
+        try:
+            # Import export manager
+            from ..core.export_manager import ExportManager
+            
+            # Create export manager
+            export_manager = ExportManager(self.config, self.resolution_manager)
+            
+            # Show file dialog
+            from PySide6.QtWidgets import QFileDialog
+            
+            # Set file extension based on format
+            extensions = {
+                'html': 'HTML Files (*.html)',
+                'png': 'PNG Images (*.png)', 
+                'svg': 'SVG Files (*.svg)',
+                'pdf': 'PDF Files (*.pdf)'
+            }
+            
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, f"{format_type.upper()}としてエクスポート",
+                f"diagram.{format_type}",
+                extensions.get(format_type, "All Files (*)")
+            )
+            
+            if not file_path:
+                return
+            
+            # Prepare diagram data
+            diagram_data = {
+                'type': diagram_type,
+                'content': content,
+                'styles': {}
+            }
+            
+            # Show progress message
+            self.status_bar.showMessage(f"{format_type.upper()}エクスポート中...", 0)
+            QApplication.processEvents()
+            
+            # Export using async function (we'll make it sync for now)
+            import asyncio
+            
+            # Create new event loop if one doesn't exist
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Export diagram
+            success = loop.run_until_complete(
+                export_manager.export_diagram(diagram_data, format_type, file_path)
+            )
+            
+            if success:
+                self.status_bar.showMessage(f"{format_type.upper()}エクスポート完了: {file_path}", 5000)
+                QMessageBox.information(self, "成功", f"エクスポートが完了しました:\n{file_path}")
+                logger.info(f"Export successful: {file_path}")
+            else:
+                self.status_bar.showMessage("エクスポートに失敗しました", 3000)
+                QMessageBox.warning(self, "エラー", "エクスポートに失敗しました。\nデバッグタブでエラー詳細を確認してください。")
+                logger.error(f"Export failed: {format_type}")
+                
+        except Exception as e:
+            self.status_bar.showMessage("エクスポートエラーが発生しました", 3000)
+            QMessageBox.critical(self, "エラー", f"エクスポート中にエラーが発生しました:\n{str(e)}")
+            logger.error(f"Export error: {e}", exc_info=True)
     
     def _show_export_dialog(self):
         """Show export dialog"""
@@ -395,6 +475,77 @@ class MainWindow(QMainWindow):
         diagram_type = self.input_panel.get_diagram_type()
         self.preview_panel.update_content(content, diagram_type)
         self.status_bar.showMessage("プレビューを更新しました", 2000)
+    
+    def _on_content_changed(self):
+        """Handle input content change"""
+        # Update preview automatically
+        self._refresh_preview()
+        
+        # Update current diagram if exists
+        if self.current_diagram:
+            self.current_diagram.mermaid_data = self.input_panel.get_content()
+        
+        logger.debug("Content changed - preview updated")
+    
+    def _on_diagram_type_changed(self, diagram_type: str):
+        """Handle diagram type change"""
+        # Update preview with new type
+        self._refresh_preview()
+        
+        # Update current diagram type
+        if self.current_diagram:
+            self.current_diagram.diagram_type = diagram_type
+            
+        # Update status
+        from ..database.models import DiagramType
+        type_name = DiagramType.display_names().get(diagram_type, diagram_type)
+        self.status_bar.showMessage(f"図の種類を{type_name}に変更しました", 2000)
+        
+        logger.debug(f"Diagram type changed to: {diagram_type}")
+    
+    def _on_preview_error(self, error_message: str):
+        """Handle preview error"""
+        self.status_bar.showMessage(f"プレビューエラー: {error_message}", 5000)
+        logger.error(f"Preview error: {error_message}")
+        
+        # Add error to debug tab
+        if hasattr(self, 'debug_tab'):
+            self.debug_tab.add_log(f"PREVIEW ERROR: {error_message}", "error")
+    
+    def _load_diagram(self, diagram: 'Diagram'):
+        """Load selected diagram from list"""
+        try:
+            self.current_diagram = diagram
+            
+            # Set content and type in input panel
+            self.input_panel.set_content(diagram.mermaid_data or "")
+            self.input_panel.set_diagram_type(diagram.diagram_type)
+            
+            # Update preview
+            self._refresh_preview()
+            
+            # Update status
+            self.status_bar.showMessage(f"図を読み込みました: {diagram.title}", 3000)
+            logger.info(f"Diagram loaded: {diagram.title}")
+            
+            # Emit signal
+            self.diagram_loaded.emit(diagram)
+            
+        except Exception as e:
+            error_msg = f"図の読み込みに失敗しました: {e}"
+            self.status_bar.showMessage(error_msg, 5000)
+            QMessageBox.warning(self, "エラー", error_msg)
+            logger.error(f"Failed to load diagram: {e}")
+    
+    def _on_diagram_deleted(self, diagram_id: int):
+        """Handle diagram deletion"""
+        if self.current_diagram and self.current_diagram.id == diagram_id:
+            self.current_diagram = None
+            self.input_panel.clear()
+            self.preview_panel.clear()
+            
+        self.status_bar.showMessage("図が削除されました", 2000)
+        logger.info(f"Diagram deleted: {diagram_id}")
     
     def _auto_save(self):
         """Auto-save current diagram"""
