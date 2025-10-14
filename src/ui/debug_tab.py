@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QLabel, QComboBox, QCheckBox, QSplitter
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QTextCharFormat, QColor
+from PySide6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
 
 import logging
 from datetime import datetime
@@ -229,7 +229,13 @@ class DebugTab(QWidget):
         
         # Append to text widget with color
         cursor = self.log_text.textCursor()
-        cursor.movePosition(cursor.End)
+        # Use proper enum for QTextCursor move operation (compatible with newer PySide6)
+        try:
+            # Try new PySide6 style first
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+        except AttributeError:
+            # Fallback to older style
+            cursor.movePosition(QTextCursor.End)
         
         # Set color format
         format = QTextCharFormat()
