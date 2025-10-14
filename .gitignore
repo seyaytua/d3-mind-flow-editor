@@ -49,4 +49,4 @@ Thumbs.db
 
 # Application specific
 config.json
-exported_files/
+exported_files/core
