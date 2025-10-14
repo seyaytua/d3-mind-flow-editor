@@ -3,18 +3,34 @@
 Input panel for D3-Mind-Flow-Editor
 """
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton,
-    QTextEdit, QLabel, QSplitter, QMessageBox
-)
-from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtGui import QFont
+# Import PySide6 components with comprehensive error handling
+try:
+    from PySide6.QtWidgets import (
+        QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton,
+        QTextEdit, QLabel, QSplitter, QMessageBox
+    )
+    from PySide6.QtCore import Qt, Signal, QTimer
+    from PySide6.QtGui import QFont
+except ImportError as e:
+    print(f"Critical Error: PySide6 input components import failed: {e}")
+    import sys
+    sys.exit(1)
 
-from ..database.models import Diagram, DiagramType
-from ..database.db_manager import DatabaseManager
-from ..utils.config import Config
-from ..utils.logger import logger
-from ..utils.clipboard import ClipboardManager
+# Import application modules with error handling
+try:
+    from ..database.models import Diagram, DiagramType
+    from ..database.db_manager import DatabaseManager
+    from ..utils.config import Config
+    from ..utils.logger import logger
+    from ..utils.clipboard import ClipboardManager
+    from ..data.sample_loader import SampleLoader
+except ImportError as e:
+    print(f"Warning: Some input modules could not be imported: {e}")
+    # Create minimal fallbacks
+    class DiagramType:
+        MINDMAP = "mindmap"
+        FLOWCHART = "flowchart"
+        GANTT = "gantt"
 
 
 class InputPanel(QWidget):
@@ -24,10 +40,18 @@ class InputPanel(QWidget):
     content_changed = Signal()
     diagram_type_changed = Signal(str)
     
-    def __init__(self, config: Config, db_manager: DatabaseManager):
+    def __init__(self, config=None, db_manager=None):
         super().__init__()
         
         self.config = config
+        
+        # Initialize sample loader
+        try:
+            self.sample_loader = SampleLoader()
+            logger.info("Sample loader initialized in input panel")
+        except Exception as e:
+            logger.warning(f"Sample loader initialization failed: {e}")
+            self.sample_loader = None
         self.db_manager = db_manager
         self.clipboard = ClipboardManager()
         

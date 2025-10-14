@@ -15,15 +15,30 @@ src_dir = Path(__file__).parent
 sys.path.insert(0, str(src_dir.parent))
 sys.path.insert(0, str(src_dir))
 
-from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen
-from PySide6.QtCore import Qt, QTimer, QTranslator, QLocale
-from PySide6.QtGui import QPixmap, QPainter, QFont, QIcon
+# Import PySide6 components with comprehensive compatibility checks
+try:
+    from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen
+    from PySide6.QtCore import Qt, QTimer, QTranslator, QLocale
+    from PySide6.QtGui import QPixmap, QPainter, QFont, QIcon, QLinearGradient
+    
+    # Check for PySide6 version compatibility
+    import PySide6
+    PYSIDE6_VERSION = PySide6.__version__
+except ImportError as e:
+    print(f"Critical Error: PySide6 import failed: {e}")
+    print("Please install PySide6: pip install PySide6>=6.6.0")
+    sys.exit(1)
 
-# Application imports
-import src.ui.main_window as main_window_module
-import src.utils.config as config_module
-import src.utils.logger as logger_module
-import src.utils.resolution_manager as resolution_manager_module
+# Application imports with error handling
+try:
+    import src.ui.main_window as main_window_module
+    import src.utils.config as config_module
+    import src.utils.logger as logger_module
+    import src.utils.resolution_manager as resolution_manager_module
+except ImportError as e:
+    print(f"Critical Error: Application module import failed: {e}")
+    print("Please ensure all src modules are properly installed.")
+    sys.exit(1)
 
 # Application metadata
 APP_NAME = "D3-Mind-Flow-Editor"
@@ -36,6 +51,13 @@ class Application(QApplication):
     """Main application class"""
     
     def __init__(self, argv):
+        # Check if QApplication instance already exists
+        existing_app = QApplication.instance()
+        if existing_app is not None:
+            # Use existing instance
+            self.__dict__ = existing_app.__dict__
+            return
+            
         super().__init__(argv)
         
         # Set application metadata
@@ -277,7 +299,6 @@ class Application(QApplication):
         painter.setRenderHint(QPainter.Antialiasing)
         
         # Draw background gradient
-        from PySide6.QtGui import QLinearGradient
         gradient = QLinearGradient(0, 0, 400, 300)
         gradient.setColorAt(0, Qt.white)
         gradient.setColorAt(1, Qt.lightGray)
@@ -330,9 +351,16 @@ class Application(QApplication):
             splash.showMessage("アプリケーションを開始中...", Qt.AlignBottom | Qt.AlignCenter)
             self.processEvents()
             
-            # Close splash screen and show main window
-            QTimer.singleShot(1000, splash.close)
-            QTimer.singleShot(1000, self.main_window.show)
+            # Close splash screen and show main window with proper timer handling
+            close_timer = QTimer()
+            close_timer.setSingleShot(True)
+            close_timer.timeout.connect(splash.close)
+            close_timer.start(1000)
+            
+            show_timer = QTimer()
+            show_timer.setSingleShot(True)
+            show_timer.timeout.connect(self.main_window.show)
+            show_timer.start(1000)
             
             logger_module.logger.info(f"{APP_NAME} v{APP_VERSION} started successfully")
             
@@ -417,6 +445,12 @@ def check_dependencies():
 
 def main():
     """Main entry point"""
+    # Setup platform for headless environment
+    import os
+    if 'QT_QPA_PLATFORM' not in os.environ:
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        print("Set Qt platform to offscreen for headless environment")
+    
     # Setup exception handling
     setup_exception_handling()
     
@@ -429,8 +463,17 @@ def main():
     logger_module.logger.info(f"Python version: {sys.version}")
     logger_module.logger.info(f"Platform: {sys.platform}")
     
-    # Create and run application
-    app = Application(sys.argv)
+    # Create and run application (handle existing instance)
+    existing_app = QApplication.instance()
+    if existing_app is not None:
+        app = existing_app
+        # Re-initialize if needed
+        app.setApplicationName(APP_NAME)
+        app.setApplicationVersion(APP_VERSION)
+        app.setOrganizationName(APP_AUTHOR)
+        app.setApplicationDisplayName(APP_NAME)
+    else:
+        app = Application(sys.argv)
     
     # Set up signal handling for graceful shutdown
     import signal

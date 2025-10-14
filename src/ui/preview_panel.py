@@ -4,19 +4,50 @@ Preview panel for D3-Mind-Flow-Editor
 Streamlined version using D3Generator templates
 """
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QProgressBar, QMessageBox
-)
-from PySide6.QtCore import Qt, Signal, QTimer, QUrl
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEngineSettings
+# Import PySide6 components with comprehensive error handling
+try:
+    from PySide6.QtWidgets import (
+        QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+        QProgressBar, QMessageBox
+    )
+    from PySide6.QtCore import Qt, Signal, QTimer, QUrl
+    
+    # Import WebEngine with fallback
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtWebEngineCore import QWebEngineSettings
+        WEBENGINE_AVAILABLE = True
+    except ImportError as we:
+        print(f"Warning: WebEngine not available: {we}")
+        # Create dummy classes for fallback
+        class QWebEngineView:
+            def __init__(self, parent=None): pass
+        class QWebEngineSettings:
+            @staticmethod
+            def globalSettings(): return None
+        WEBENGINE_AVAILABLE = False
+        
+except ImportError as e:
+    print(f"Critical Error: PySide6 preview components import failed: {e}")
+    import sys
+    sys.exit(1)
 
 import json
-from ..database.models import DiagramType
-from ..utils.config import Config
-from ..utils.logger import logger
-from ..utils.resolution_manager import ResolutionManager
+
+# Import application modules with error handling
+try:
+    from ..database.models import DiagramType
+    from ..utils.config import Config
+    from ..utils.logger import logger
+    from ..utils.resolution_manager import ResolutionManager
+    from ..core.d3_generator import D3Generator
+except ImportError as e:
+    print(f"Warning: Some preview modules could not be imported: {e}")
+    # Create minimal fallbacks
+    class DiagramType:
+        MINDMAP = "mindmap"
+        FLOWCHART = "flowchart"
+        GANTT = "gantt"
 
 
 class PreviewPanel(QWidget):
@@ -25,11 +56,19 @@ class PreviewPanel(QWidget):
     # Signals
     error_occurred = Signal(str)
     
-    def __init__(self, config: Config, resolution_manager: ResolutionManager):
+    def __init__(self, config=None, resolution_manager=None):
         super().__init__()
         
         self.config = config
         self.resolution_manager = resolution_manager
+        
+        # Initialize D3 generator
+        try:
+            self.d3_generator = D3Generator()
+            logger.info("D3 generator initialized in preview panel")
+        except Exception as e:
+            logger.warning(f"D3 generator initialization failed: {e}")
+            self.d3_generator = None
         
         # Current content
         self.current_content = ""

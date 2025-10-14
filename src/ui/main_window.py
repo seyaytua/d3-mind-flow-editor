@@ -3,27 +3,44 @@
 Main window for D3-Mind-Flow-Editor
 """
 
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QSplitter, QTabWidget, QToolBar, QMenuBar, QMenu,
-    QStatusBar, QMessageBox, QApplication, QFileDialog
-)
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QIcon, QKeySequence
+# Import PySide6 components with comprehensive error handling
+try:
+    from PySide6.QtWidgets import (
+        QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+        QSplitter, QTabWidget, QToolBar, QMenuBar, QMenu,
+        QStatusBar, QMessageBox, QApplication, QFileDialog
+    )
+    from PySide6.QtCore import Qt, QTimer, Signal
+    from PySide6.QtGui import QAction, QIcon, QKeySequence
+except ImportError as e:
+    print(f"Critical Error: PySide6 UI components import failed: {e}")
+    import sys
+    sys.exit(1)
 
-from ..database.db_manager import DatabaseManager
-from ..database.models import Diagram, DiagramType
-from ..utils.config import Config
-from ..utils.logger import logger
-from ..utils.resolution_manager import ResolutionManager
-
-from .input_panel import InputPanel
-from .preview_panel import PreviewPanel
-from .list_panel import ListPanel
-from .debug_tab import DebugTab
-from .help_tab import HelpTab
-from .settings_tab import SettingsTab
-from .dialogs import SaveDialog, ExportDialog
+# Import application modules with error handling
+try:
+    from ..database.db_manager import DatabaseManager
+    from ..database.models import Diagram, DiagramType
+    from ..utils.config import Config
+    from ..utils.logger import logger
+    from ..utils.resolution_manager import ResolutionManager
+    from ..core.export_manager import ExportManager
+    
+    from .input_panel import InputPanel
+    from .preview_panel import PreviewPanel
+    from .list_panel import ListPanel
+    from .debug_tab import DebugTab
+    from .help_tab import HelpTab
+    from .settings_tab import SettingsTab
+    from .dialogs import SaveDialog, ExportDialog
+except ImportError as e:
+    print(f"Warning: Some application modules could not be imported: {e}")
+    # Continue with available modules
+    try:
+        from ..utils.logger import logger
+        logger.warning(f"Module import warning: {e}")
+    except:
+        print(f"Logger unavailable, import error: {e}")
 
 
 class MainWindow(QMainWindow):
@@ -36,10 +53,35 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        # Initialize components
-        self.config = Config()
-        self.db_manager = DatabaseManager()
-        self.resolution_manager = ResolutionManager(self.config)
+        # Initialize components with error handling
+        try:
+            self.config = Config()
+            logger.info("Configuration initialized")
+        except Exception as e:
+            logger.error(f"Config initialization failed: {e}")
+            self.config = None
+        
+        try:
+            self.db_manager = DatabaseManager()
+            logger.info("Database manager initialized")
+        except Exception as e:
+            logger.error(f"Database manager initialization failed: {e}")
+            self.db_manager = None
+        
+        try:
+            self.resolution_manager = ResolutionManager(self.config) if self.config else None
+            logger.info("Resolution manager initialized")
+        except Exception as e:
+            logger.warning(f"Resolution manager initialization failed: {e}")
+            self.resolution_manager = None
+        
+        # Initialize export manager
+        try:
+            self.export_manager = ExportManager()
+            logger.info("Export manager initialized")
+        except Exception as e:
+            logger.warning(f"Export manager initialization failed: {e}")
+            self.export_manager = None
         
         # Current diagram
         self.current_diagram = None
@@ -96,13 +138,31 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Input panel
-        self.input_panel = InputPanel(self.config, self.db_manager)
-        left_layout.addWidget(self.input_panel, 2)  # 2/3 of left panel
+        # Input panel with error handling
+        try:
+            self.input_panel = InputPanel(self.config, self.db_manager)
+            left_layout.addWidget(self.input_panel, 2)  # 2/3 of left panel
+            logger.debug("Input panel created")
+        except Exception as e:
+            logger.error(f"Input panel initialization failed: {e}")
+            # Create fallback simple text widget
+            from PySide6.QtWidgets import QLabel
+            fallback_label = QLabel("入力パネルの初期化に失敗しました")
+            left_layout.addWidget(fallback_label, 2)
+            self.input_panel = None
         
-        # Saved diagrams list
-        self.list_panel = ListPanel(self.db_manager)
-        left_layout.addWidget(self.list_panel, 1)  # 1/3 of left panel
+        # Saved diagrams list with error handling
+        try:
+            self.list_panel = ListPanel(self.db_manager)
+            left_layout.addWidget(self.list_panel, 1)  # 1/3 of left panel
+            logger.debug("List panel created")
+        except Exception as e:
+            logger.warning(f"List panel initialization failed: {e}")
+            # Create fallback simple widget
+            from PySide6.QtWidgets import QLabel
+            fallback_label = QLabel("リストパネルの初期化に失敗しました")
+            left_layout.addWidget(fallback_label, 1)
+            self.list_panel = None
         
         main_splitter.addWidget(left_widget)
         
@@ -110,21 +170,53 @@ class MainWindow(QMainWindow):
         self.right_tabs = QTabWidget()
         self.right_tabs.setTabPosition(QTabWidget.South)
         
-        # Preview tab
-        self.preview_panel = PreviewPanel(self.config, self.resolution_manager)
-        self.right_tabs.addTab(self.preview_panel, "プレビュー")
+        # Preview tab with error handling
+        try:
+            self.preview_panel = PreviewPanel(self.config, self.resolution_manager)
+            self.right_tabs.addTab(self.preview_panel, "プレビュー")
+            logger.debug("Preview panel created")
+        except Exception as e:
+            logger.error(f"Preview panel initialization failed: {e}")
+            from PySide6.QtWidgets import QLabel
+            fallback_label = QLabel("プレビューパネルの初期化に失敗しました")
+            self.right_tabs.addTab(fallback_label, "プレビュー")
+            self.preview_panel = None
         
-        # Debug tab
-        self.debug_tab = DebugTab()
-        self.right_tabs.addTab(self.debug_tab, "デバッグ")
+        # Debug tab with error handling
+        try:
+            self.debug_tab = DebugTab()
+            self.right_tabs.addTab(self.debug_tab, "デバッグ")
+            logger.debug("Debug tab created")
+        except Exception as e:
+            logger.warning(f"Debug tab initialization failed: {e}")
+            from PySide6.QtWidgets import QLabel
+            fallback_label = QLabel("デバッグタブの初期化に失敗しました")
+            self.right_tabs.addTab(fallback_label, "デバッグ")
+            self.debug_tab = None
         
-        # Help tab
-        self.help_tab = HelpTab()
-        self.right_tabs.addTab(self.help_tab, "ヘルプ")
+        # Help tab with error handling
+        try:
+            self.help_tab = HelpTab()
+            self.right_tabs.addTab(self.help_tab, "ヘルプ")
+            logger.debug("Help tab created")
+        except Exception as e:
+            logger.warning(f"Help tab initialization failed: {e}")
+            from PySide6.QtWidgets import QLabel
+            fallback_label = QLabel("ヘルプタブの初期化に失敗しました")
+            self.right_tabs.addTab(fallback_label, "ヘルプ")
+            self.help_tab = None
         
-        # Settings tab
-        self.settings_tab = SettingsTab(self.config, self.resolution_manager)
-        self.right_tabs.addTab(self.settings_tab, "設定")
+        # Settings tab with error handling
+        try:
+            self.settings_tab = SettingsTab(self.config, self.resolution_manager)
+            self.right_tabs.addTab(self.settings_tab, "設定")
+            logger.debug("Settings tab created")
+        except Exception as e:
+            logger.warning(f"Settings tab initialization failed: {e}")
+            from PySide6.QtWidgets import QLabel
+            fallback_label = QLabel("設定タブの初期化に失敗しました")
+            self.right_tabs.addTab(fallback_label, "設定")
+            self.settings_tab = None
         
         main_splitter.addWidget(self.right_tabs)
         
