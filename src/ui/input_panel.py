@@ -121,6 +121,9 @@ class InputPanel(QWidget):
         
         # Set placeholder text
         self._set_placeholder_text()
+        
+        # Set initial sample data for demonstration
+        self._set_initial_sample_data()
     
     def _setup_connections(self):
         """Setup signal connections"""
@@ -179,8 +182,65 @@ task,start,end,category,progress,dependencies
         """Handle diagram type change"""
         diagram_type = self.get_diagram_type()
         self._set_placeholder_text()
+        
+        # Set sample data if content is empty
+        if not self.get_content().strip():
+            self._set_initial_sample_data()
+        
         self.diagram_type_changed.emit(diagram_type)
         logger.debug(f"Diagram type changed to: {diagram_type}")
+    
+    def _set_initial_sample_data(self):
+        """Set initial sample data for demonstration"""
+        if self.get_content().strip():
+            return  # Don't override existing content
+            
+        diagram_type = self.get_diagram_type()
+        
+        sample_data = {
+            DiagramType.MINDMAP: """プロジェクト企画,,,
+,市場調査,,
+,,ターゲット分析,
+,,競合調査,
+,,トレンド分析,
+,技術検討,,
+,,フロントエンド,
+,,,React
+,,,Vue.js
+,,バックエンド,
+,,,Node.js
+,,,Python
+,リスク管理,,
+,,技術リスク,
+,,スケジュールリスク,""",
+            
+            DiagramType.FLOWCHART: """flowchart TD
+    A[ユーザー登録開始] --> B{メールアドレス入力}
+    B -->|有効| C[パスワード設定]
+    B -->|無効| D[エラー表示]
+    D --> B
+    C --> E{パスワード強度チェック}
+    E -->|弱い| F[強化要求]
+    F --> C
+    E -->|強い| G[利用規約確認]
+    G -->|同意| H[アカウント作成]
+    G -->|拒否| I[登録中止]
+    H --> J[確認メール送信]
+    J --> K[登録完了]
+    I --> L[トップページへ]""",
+            
+            DiagramType.GANTT: """task,start,end,category,progress,dependencies
+企画・要件定義,2024-01-01,2024-01-15,Phase1,1.0,
+UI/UX設計,2024-01-10,2024-01-25,Phase1,0.9,企画・要件定義
+システム設計,2024-01-20,2024-02-05,Phase2,0.7,企画・要件定義
+フロントエンド開発,2024-02-01,2024-02-28,Phase2,0.4,UI/UX設計
+バックエンド開発,2024-02-01,2024-02-28,Phase2,0.4,システム設計
+統合テスト,2024-02-25,2024-03-10,Phase3,0.1,フロントエンド開発;バックエンド開発
+リリース準備,2024-03-05,2024-03-15,Phase3,0.0,統合テスト"""
+        }
+        
+        self.set_content(sample_data.get(diagram_type, ""))
+        logger.debug(f"Set initial sample data for {diagram_type}")
     
     def _on_text_changed(self):
         """Handle text change with debouncing"""

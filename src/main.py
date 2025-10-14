@@ -54,17 +54,26 @@ class Application(QApplication):
         
     def _setup_application(self):
         """Setup application-wide settings"""
-        # Set up high DPI support (check for newer PySide6 compatibility)
+        # Set up high DPI support (PySide6 6.6+ handles this automatically)
         try:
-            # These attributes are deprecated in newer PySide6 versions
-            # but we'll try them for backward compatibility
-            if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-                self.setAttribute(Qt.AA_EnableHighDpiScaling)
-            if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-                self.setAttribute(Qt.AA_UseHighDpiPixmaps)
-        except AttributeError:
-            # Newer PySide6 versions handle HiDPI automatically
-            logger_module.logger.debug("High DPI attributes not needed in this PySide6 version")
+            # Only set these attributes for older PySide6 versions
+            # Newer versions (6.6+) handle high DPI automatically
+            import PySide6
+            version_info = PySide6.__version__.split('.')
+            major, minor = int(version_info[0]), int(version_info[1])
+            
+            if major < 6 or (major == 6 and minor < 6):
+                # Only for older versions
+                if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+                    self.setAttribute(Qt.AA_EnableHighDpiScaling)
+                if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+                    self.setAttribute(Qt.AA_UseHighDpiPixmaps)
+                logger_module.logger.debug(f"Applied HiDPI attributes for PySide6 {PySide6.__version__}")
+            else:
+                logger_module.logger.debug(f"PySide6 {PySide6.__version__} handles HiDPI automatically")
+        except (AttributeError, ImportError, ValueError) as e:
+            # Fallback: newer versions handle HiDPI automatically
+            logger_module.logger.debug(f"HiDPI setup skipped: {e}")
         
         # Set application style
         self.setStyle('Fusion')  # Modern cross-platform style
