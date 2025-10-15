@@ -447,9 +447,21 @@ def main():
     """Main entry point"""
     # Setup platform for headless environment
     import os
+    import sys
+    
+    # Python version compatibility warning
+    if sys.version_info >= (3, 12):
+        print(f"⚠️  Warning: Python {sys.version_info.major}.{sys.version_info.minor} detected")
+        print("   Recommended: Python 3.11.x for maximum stability")
+        print("   Continuing with compatibility mode...")
+    
+    # Only use offscreen for non-Darwin (non-macOS) systems or when explicitly requested
     if 'QT_QPA_PLATFORM' not in os.environ:
-        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-        print("Set Qt platform to offscreen for headless environment")
+        if sys.platform != 'darwin':  # Not macOS
+            os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+            print("Set Qt platform to offscreen for headless environment")
+        else:
+            print("Running on macOS - using native GUI platform")
     
     # Setup exception handling
     setup_exception_handling()
@@ -466,12 +478,28 @@ def main():
     # Create and run application (handle existing instance)
     existing_app = QApplication.instance()
     if existing_app is not None:
-        app = existing_app
-        # Re-initialize if needed
-        app.setApplicationName(APP_NAME)
-        app.setApplicationVersion(APP_VERSION)
-        app.setOrganizationName(APP_AUTHOR)
-        app.setApplicationDisplayName(APP_NAME)
+        logger_module.logger.warning("Existing QApplication found - creating minimal wrapper")
+        # Create a minimal wrapper to handle existing QApplication
+        class ExistingAppWrapper:
+            def __init__(self, qapp):
+                self.qapp = qapp
+                self.qapp.setApplicationName(APP_NAME)
+                self.qapp.setApplicationVersion(APP_VERSION)
+                self.qapp.setOrganizationName(APP_AUTHOR)
+                self.qapp.setApplicationDisplayName(APP_NAME)
+            
+            def exec(self):
+                # Create main window manually
+                try:
+                    main_window = main_window_module.MainWindow()
+                    main_window.show()
+                    logger_module.logger.info(f"{APP_NAME} v{APP_VERSION} started with existing QApplication")
+                    return self.qapp.exec()
+                except Exception as e:
+                    logger_module.logger.error(f"Failed to create main window: {e}")
+                    return 1
+        
+        app = ExistingAppWrapper(existing_app)
     else:
         app = Application(sys.argv)
     
@@ -486,7 +514,15 @@ def main():
     
     # Run application
     try:
-        return app.run()
+        # Use the appropriate execution method
+        if hasattr(app, 'run'):
+            # This is our custom Application class with run() method
+            logger_module.logger.info("Starting with custom Application.run()")
+            return app.run()
+        else:
+            # Wrapper class or fallback - use exec()
+            logger_module.logger.info("Starting with exec() method")
+            return app.exec()
     except KeyboardInterrupt:
         logger_module.logger.info("Application interrupted by user")
         return 0

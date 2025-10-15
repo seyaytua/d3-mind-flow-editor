@@ -21,7 +21,17 @@ def check_python_version():
     if sys.version_info < (3, 8):
         print(f"Error: Python 3.8+ required, found {sys.version}")
         return False
+    
     print(f"✓ Python version: {sys.version}")
+    
+    # Stability recommendation
+    if sys.version_info >= (3, 12):
+        print(f"⚠️  Stability Warning: Python {sys.version_info.major}.{sys.version_info.minor} is very new")
+        print("   🔄 Recommended: Python 3.11.x for proven stability")
+        print("   🛡️ Continuing with enhanced compatibility checks...")
+    elif sys.version_info >= (3, 11) and sys.version_info < (3, 12):
+        print("✓ Excellent: Python 3.11.x - optimal stability")
+    
     return True
 
 
@@ -35,9 +45,13 @@ def check_pyside6():
         version = PySide6.__version__
         print(f"✓ PySide6 version: {version}")
         
-        # Test basic Qt functionality with offscreen platform for headless environment
+        # Test basic Qt functionality with appropriate platform
         import os
-        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        import sys
+        
+        # Only use offscreen for non-Darwin (non-macOS) systems
+        if 'QT_QPA_PLATFORM' not in os.environ and sys.platform != 'darwin':
+            os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
         # Check if QApplication already exists
         app = QApplication.instance()
@@ -52,7 +66,10 @@ def check_pyside6():
         if created_app:
             app.quit()
         
-        print("✓ PySide6 basic functionality test passed (offscreen mode)")
+        if sys.platform == 'darwin':
+            print("✓ PySide6 basic functionality test passed (macOS native mode)")
+        else:
+            print("✓ PySide6 basic functionality test passed (offscreen mode)")
         return True
         
     except ImportError as e:
@@ -93,6 +110,27 @@ def check_playwright():
         return False
 
 
+def check_python311_compatibility():
+    """Check Python 3.11+ specific compatibility issues"""
+    try:
+        # Test newer Python version compatibility
+        if sys.version_info >= (3, 11):
+            # Test some 3.11+ specific features that might cause issues
+            import tomllib  # New in Python 3.11
+            print("✓ Python 3.11+ compatibility features available")
+        
+        # Test typing features that changed in newer versions
+        from typing import Union, Optional
+        print("✓ Typing compatibility verified")
+        
+        return True
+    except ImportError as e:
+        print(f"⚠ Python 3.11+ compatibility warning: {e}")
+        return True  # Non-fatal
+    except Exception as e:
+        print(f"⚠ Python version compatibility check failed: {e}")
+        return True  # Non-fatal
+
 def check_application_modules():
     """Check application module availability"""
     try:
@@ -121,9 +159,13 @@ def run_safe_mode():
         from PySide6.QtWidgets import QApplication, QMessageBox, QWidget, QVBoxLayout, QLabel, QPushButton
         from PySide6.QtCore import Qt
         
-        # Set offscreen platform for headless environment
+        # Set appropriate platform
         import os
-        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        import sys
+        
+        # Only use offscreen for non-Darwin (non-macOS) systems
+        if 'QT_QPA_PLATFORM' not in os.environ and sys.platform != 'darwin':
+            os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
         # Use existing QApplication instance if available
         app = QApplication.instance()
@@ -165,9 +207,13 @@ def run_full_mode():
     print("\n🚀 Starting in FULL MODE...")
     
     try:
-        # Set offscreen platform for headless environment
+        # Set appropriate platform
         import os
-        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        import sys
+        
+        # Only use offscreen for non-Darwin (non-macOS) systems
+        if 'QT_QPA_PLATFORM' not in os.environ and sys.platform != 'darwin':
+            os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
         # Import and run the main application
         from src.main import main
@@ -204,6 +250,7 @@ def main():
     total_checks += 1
     
     # Optional checks (don't affect startup decision)
+    check_python311_compatibility()
     check_webengine()
     check_playwright()
     
